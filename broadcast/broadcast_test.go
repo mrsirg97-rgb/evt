@@ -270,6 +270,32 @@ func TestASubscriberCancelHearsItAndStopsReceiving(t *testing.T) {
 	}
 }
 
+func TestAHeartbeatAndASnapshotFromOneSenderWaitApart(t *testing.T) {
+	room, engine := loopRoom(t)
+	ctx := context.Background()
+	a, b := room.Add(1), room.Add(2)
+	in := newInbox()
+	b.Subscribe(ctx, in.take)
+	for i := 0; i < 3; i++ {
+		a.Publish(ctx, func(error) {}, broadcast.Heartbeat(1, true))
+	}
+	for i := 1; i <= 3; i++ {
+		a.Publish(ctx, func(error) {}, broadcast.NewMessage(1, true, workers{Pending: i}))
+	}
+	if n := len(engine.Pending()); n != 2 {
+		t.Fatalf("a heartbeat and a snapshot replace their own waiting value only: got %d", n)
+	}
+	go engine.Start(ctx)
+	defer engine.Stop()
+	in.await(t, 2)
+	if in.got[0][0].Event() != nil {
+		t.Fatal("the heartbeat lands first and empty")
+	}
+	if st := in.got[1][0].Event().(workers); st.Pending != 3 {
+		t.Fatalf("the snapshot lands with the latest value, got %d", st.Pending)
+	}
+}
+
 func TestMembershipIsSortedAndRemoveIsHonest(t *testing.T) {
 	room, _ := loopRoom(t)
 	room.Add(9)
