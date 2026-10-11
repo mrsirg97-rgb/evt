@@ -1,4 +1,4 @@
-# evt 0.1.0: the engine, the room and the event leave rig as one module
+# evt 0.1.0: the engine, the signal, the room and the hand-off leave rig as one module
 
 Design note for the module `github.com/mrsirg97-rgb/evt`, written against
 rig main after 2.17.1 (74ab79f). The counts below were re-verified at that
@@ -6,14 +6,17 @@ tree before this note was written.
 
 ## the rule
 
-The base package for building event-based systems in Go is three things
+The base package for building event-based systems in Go is four things
 and nothing about agents:
 
 1. **an engine** that runs closures on one consumer, highest priority
    first, arrival order within a priority, no locks, timeouts or polls
    anywhere;
-2. **an event**, which is an interface;
-3. **a room** whose members exchange events over a transport.
+2. **a signal**, which is an interface: what happened, told to whoever
+   listens (the engine's `Event` is the other word: work it runs);
+3. **a room** whose members exchange signals over a transport;
+4. **a hand-off**: a cap on how much work starts at once, its state
+   touched only by the consumer (below).
 
 Anything that names a model, a tool, a turn, a session or a transcript is
 an application of the module and stays in the application. Rig keeps
@@ -24,8 +27,8 @@ to idle members of a room — and the README may say so in a paragraph.
 ## the packages
 
 The root package is the engine, so `import ".../evt"` is the engine as it
-is in rig today. The room is the subpackage `broadcast`. The event types
-live in the subpackage `event`.
+is in rig today. The signal types live beside it in the root, in their
+own file. The room is the subpackage `broadcast`.
 
 - **`evt`** (root, `./`) — the engine, moved unchanged: `Closure`, `Func`,
   `Event` (`ID`, `Priority`, `Closure`), `NewEvent`, `Execute`, `Clock`,
@@ -34,23 +37,28 @@ live in the subpackage `event`.
   `ErrNoEngine`, `ErrStarted`. Same files (`clock.go`, `closure.go`,
   `engine.go`, `event.go`, `queue.go`, `scheduler.go`), same tests, same
   exported names. The only diff is the import path. Imports nothing.
-- **`event`** (`./event`) — the event types: `Event`, `Marker`,
-  `Snapshot`, `Notice`, `Level` (`LevelInfo`, `LevelSuccess`,
-  `LevelError`). Imports nothing.
+  Beside the engine, `signal.go` holds the signal types: `Signal`,
+  `Mark`, `Snapshot`, `Notice`, `Level` (`LevelInfo`, `LevelSuccess`,
+  `LevelError`); and `handoff.go` the hand-off: `Cap`, `NewCap`,
+  `Submission`.
 - **`broadcast`** (`./broadcast`) — the room: `Message`, `NewMessage`,
   `Heartbeat`, `Transport`, `NewLoopTransport`, `NewPipeTransport`,
   `Member`, `NewMember`, `Room`, `NewRoom`, `Say`, the `Encoder`
   interface and its JSON codec with the wire `Registry`. Imports `evt`
-  and `event` only.
+  only.
 
-No cycles: the engine imports nothing, the event types import nothing,
-the room imports both.
+No cycles: the root imports nothing, the room imports the root.
 
-Why `event` for the types package: the module is named `evt`, so the
-engine owns that word; the payload types are the event vocabulary, and
-`event.Event` is Go's own idiom for a stutter (`url.URL`, `http.Client`).
-`core` was rejected: that word stays rig's. `types` was rejected: it says
-nothing.
+Why `Signal`, and why in the root: the engine already owns the word
+`Event` — work it runs, with an id, a priority and a closure. What a
+provider streams, a frontend is told and a room's members exchange is
+the other thing: what happened, told to whoever listens. Two words for
+two things, side by side in one package, so the difference is the first
+thing a reader meets. The first cut put these types in a subpackage
+`event` as `event.Event`; `evt.Event` beside `event.Event` named two
+different things with one word, and the package went. A package named
+`signal` was rejected: it would shadow `os/signal` in any file that
+handles a SIGTERM. `core` was rejected: that word stays rig's.
 
 ## the moves, type by type
 
@@ -60,11 +68,11 @@ move; the agent vocabulary stays.
 
 | type | verdict | why |
 | --- | --- | --- |
-| `Event` (`interface{ event() }`) | **moves** | the module's second thing: an event is an interface, and the shape that lets applications declare one is decided below |
+| `Event` (`interface{ event() }`) | **moves**, as `evt.Signal` (`interface{ signal() }`) | the module's second thing: a signal is an interface, and the shape that lets applications declare one is decided below |
 | `Snapshot` (`interface{ Event; Snapshot() }`) | **moves** | a room's state-vs-story distinction; not agent vocabulary |
 | `Notice` | **moves** | the one voice every background subsystem speaks with — room vocabulary, not agent vocabulary |
 | `Level` | **moves** | Notice's level; one concept, one home — moves with it |
-| `Marker` (new) | **new, in `event`** | the declaration shape (below) |
+| `Mark` (new) | **new, in the root** | the declaration shape (below) |
 | `TextDelta`, `ReasoningDelta` | stays | names a model stream |
 | `ToolCallEvent`, `ToolStart`, `ToolResult`, `ToolCall` | stays | names a tool |
 | `Done`, `EmptyTurn`, `TurnReason`, `TurnEnd`, `Compacted`, `Compacting` | stays | names a turn |
@@ -85,21 +93,22 @@ No type in rig's `core` fits neither side; the note does not stop.
 
 `broadcast`'s move is the same cut: `Message`, `Transport` (loop and
 pipe), `Member`, `Room`, `Say` move with a generic payload — nothing in
-them names an application's type. `Say` publishes `event.Notice` and
+them names an application's type. `Say` publishes `evt.Notice` and
 keeps its variadic level, so a caller names the level where the text is
 made, as rig does today.
 
-## decision: how an application declares an event
+## decision: how an application declares a signal
 
-`Event`'s method is unexported today, so only `core` can declare an
-event. One shape moves to the module; two candidates:
+In rig's `core` the interface was `Event` with an unexported method, so
+only `core` could declare one. One shape moves to the module; two
+candidates:
 
-1. an exported marker method — `type Event interface{ Event() }`, every
-   application type carries `func (T) Event() {}`;
-2. **embedding** — `type Event interface{ event() }` stays closed, and
+1. an exported marker method — `type Signal interface{ Signal() }`,
+   every application type carries `func (T) Signal() {}`;
+2. **embedding** — `type Signal interface{ signal() }` stays closed, and
    the module exports the one type that opens it:
-   `type Marker struct{}` with `func (Marker) event() {}`. An
-   application writes `event.Marker` into its struct and the method is
+   `type Mark struct{}` with `func (Mark) signal() {}`. An
+   application writes `evt.Mark` into its struct and the method is
    promoted from the module's own package.
 
 The shape is **embedding**, for three reasons:
@@ -113,7 +122,7 @@ The shape is **embedding**, for three reasons:
   lets any struct with a stray `Event()` method — an accessor, say —
   become an event by accident; embedding is exact.
 - **the registry handshake composes.** Registering a wire type asserts
-  two opt-ins — it is an event (the marker) and it crosses (the
+  two opt-ins — it is a signal (the mark) and it crosses (the
   registry) — and the marker field is where the first one is written.
 
 Verified before this note: a type in another package embedding an
@@ -122,7 +131,7 @@ unexported-method interface, and the composite snapshot
 (`interface{ Event; Snapshot() }`) is satisfied the same way. Also
 verified: `json.Marshal` of a struct carrying the empty marker produces
 byte-identical output, so the fleet pipe's payloads do not move. Inside
-the `event` package itself, `Notice` declares the method directly (it is
+the root package itself, `Notice` declares the method directly (it is
 in the package); the marker exists for out-of-package declarers. One
 method, one concept, two spellings, one package boundary.
 
@@ -167,7 +176,7 @@ fd 3 carries the same bytes.
    streams (`<-chan Event`), the loop, the four frontends,
    `middleware/toolset`, the context policies, `store/state`'s recorder,
    the graph and decision queues, `tool/verdict`. No aliases in `core`:
-   re-declaring `type Notice = event.Notice` would leave the moved type
+   re-declaring `type Notice = evt.Notice` would leave the moved type
    living two lives in one tree. The diff is mechanical and the suite
    proves it.
 2. **`broadcast`'s tests name rig's types** (the encoder's kind table,
@@ -194,12 +203,74 @@ fd 3 carries the same bytes.
    directive in rig's tree, no workspace file committed. evtjs (which
    imports rig's `evt` at its pinned rig version today) and the 3.0.0
    proxy are waiting consumers; both are out of scope here.
+7. **The engine's tests are external test packages** (`package
+   evt_test`), so they import the engine by its module path. Moving
+   them changes exactly one line per file — the import path — which is
+   the diff this move's rule names. The six sources are byte-identical;
+   no other change was needed.
+8. **The payload's JSON carries the Go field names** (`{"Source":…,
+   "Text":…, "Level":0}`): rig's `core` types never carried tags and
+   the fleet pipe's bytes must not move, so `evt.Notice` moves
+   without tags and rig's lift must not add any. The frame-shape test
+   pins the whole frame byte for byte: origin, ok, kind, payload, and
+   a heartbeat's frame with no kind.
+
+## the hand-off
+
+The rule's fourth thing came after the first three, and is the
+one rig's delegate needed: **a cap** that gates how much work starts at
+once. `NewCap(engine, workers)` — zero is no cap — hands out
+`Submit(ctx, work, priority)`: a submit says whether the work started or
+queued, and a started work is resolved by the submitter in its own
+goroutine, right where the call returns; a queued one becomes an event
+at the priority the submit named. **The cap's state is touched only by
+the consumer.** The queue is a slice only the consumer's closures read
+and write — no mutex, and no channel standing in for a counter; the two
+counts are atomics. A submit, a release and a stop are events, so the
+append that queues work and the pop that starts it can never interleave:
+the same body that appends checks whether a place is free and starts the
+work itself. A completion is the release: `Release` posts one event at
+the priority the submit named, and its body frees the place and starts
+the next queued work, which the cap resolves on its own goroutine with
+the context the submitter handed in — the work may be minutes long and
+the loop must not stall. `Stop` posts the same kind of event and settles
+the work with a stopped context; it never starts. The submission carries
+the settle: `Settled` closes when the work's resolve returns, whichever
+way it went. The cap reports what it holds: `InFlight`, `Queued`, and
+its own `Size`. One cap serves several submitters — the value is the
+whole contract; nothing per-submitter to wire.
+
+The first cut was a mutex and a buffered channel, and it was not safe: a
+submit that fails to take a place and a release that finds the queue
+empty interleave, leaving work queued with a place free and nothing to
+start it — reproduced in 14 of 300,000 rounds, one release racing one
+submit on a cap of 1. The rebuild moves the state behind the consumer;
+the race test, one release racing one submit for 300,000 rounds, is the
+proof the shape cannot lose a wakeup.
+
+The rebuild had a second race of its own. A submit that finds a place
+free takes it off the consumer, by compare-and-swap; the consumer, when
+a release freed a place, read the count and then added one for the work
+it was starting. Between that read and that add a submit could take the
+same place: two holders on a cap of one, in 13 of 200,000 rounds. Now
+both sides take a place the same way, in one compare-and-swap, and a
+submit takes one off the consumer only when nothing is queued, so queued
+work is never passed by a later submit. The seat test, a release racing
+a submit behind a queued work for 200,000 rounds, pins both.
+
+Checked against what the module had: none of the four existed. The
+engine's `Add` answers an id, never started-or-queued; the engine counts
+nothing in flight; nothing shared a cap; a pending event dropped at
+`Stop` settles nothing. The hand-off borrows the engine, not the room:
+the work's own posts flow through whatever engine its application runs —
+rig's returns ride the room — and the hand-off only gates the starts and
+owns the settle. One test per addition, as the additions landed.
 
 ## what stays in rig
 
 `swarm` (662 lines) and `tool/delegate` (551 lines) stay: they are the
 fleet, written against rig's stores. `core` keeps the agent vocabulary
-and declares its types events through the marker. The loop, the batch
+and declares its types signals through the mark. The loop, the batch
 and the kernel's priority table do not change beyond import paths.
 
 ## order of work

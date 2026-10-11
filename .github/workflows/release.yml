@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: test
+        run: go vet ./... && go test -race ./...
+      - name: fmt-check
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "fmt-check: unformatted files:" >&2
+            gofmt -l . >&2
+            exit 1
+          fi
+      - name: the module requires nothing
+        run: |
+          if [ "$(go list -m all | wc -l)" -ne 1 ]; then
+            echo "the module requires something:" >&2
+            go list -m all >&2
+            exit 1
+          fi
+      # the tag is the release: Go fetches a module by its tag, so there
+      # are no assets. The notes are the tag's own section of CHANGELOG.md,
+      # and a tag with no section refuses to release.
+      - name: the tag's changelog section
+        run: |
+          set -eu
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { on = 1; print; next }
+            on && index($0, "## [") == 1 { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "release: CHANGELOG.md has no section for ${VERSION}; refusing to release" >&2
+            exit 1
+          fi
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
