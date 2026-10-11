@@ -40,8 +40,9 @@ starts at once).
   background subsystem speaks with; `Level` is info, success or error.
   `Event` is work the engine runs; `Signal` is what an application
   tells: the two words never mean the same thing.
-- `handoff.go`: `NewCap(engine, workers)` (zero, or a nil cap, is no
-  cap) and `Submit(ctx, work, priority)`. A submission that `Started`
+- `handoff.go`: `Cap` and `Submission`, both interfaces.
+  `NewCap(engine, workers)` (zero is no cap) and
+  `Submit(ctx, work, priority)`. A submission that `Started`
   holds a place and the submitter runs the work itself; a queued one is
   resolved by the cap on its own goroutine when a place frees, with the
   submitter's context. `Release` frees the place and starts the next

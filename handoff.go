@@ -5,41 +5,46 @@ import (
 	"sync/atomic"
 )
 
-type Cap struct {
+type Cap interface {
+	Size() int
+	InFlight() int
+	Queued() int
+	Submit(ctx context.Context, work Closure, priority int) Submission
+}
+
+type Submission interface {
+	Started() bool
+	Settled() <-chan struct{}
+	Stop()
+	Release()
+}
+
+type cap struct {
 	engine  Engine
 	workers int
 	started atomic.Int64
 	queued  atomic.Int64
-	pending []*Submission
+	pending []*submission
 }
 
-func NewCap(engine Engine, workers int) *Cap {
-	return &Cap{engine: engine, workers: workers}
+func NewCap(engine Engine, workers int) Cap {
+	return &cap{engine: engine, workers: workers}
 }
 
-func (c *Cap) Size() int {
-	if c == nil {
-		return 0
-	}
+func (c *cap) Size() int {
 	return c.workers
 }
 
-func (c *Cap) InFlight() int {
-	if c == nil {
-		return 0
-	}
+func (c *cap) InFlight() int {
 	return int(c.started.Load())
 }
 
-func (c *Cap) Queued() int {
-	if c == nil {
-		return 0
-	}
+func (c *cap) Queued() int {
 	return int(c.queued.Load())
 }
 
-type Submission struct {
-	c        *Cap
+type submission struct {
+	c        *cap
 	ctx      context.Context
 	work     Closure
 	priority int
@@ -47,12 +52,12 @@ type Submission struct {
 	place    atomic.Bool
 }
 
-func (s *Submission) Started() bool { return s.place.Load() }
+func (s *submission) Started() bool { return s.place.Load() }
 
-func (s *Submission) Settled() <-chan struct{} { return s.done }
+func (s *submission) Settled() <-chan struct{} { return s.done }
 
-func (s *Submission) Stop() {
-	if s.place.Load() || s.c == nil || s.c.workers <= 0 {
+func (s *submission) Stop() {
+	if s.place.Load() || s.c.workers <= 0 {
 		return
 	}
 	s.c.engine.Add(Func(func(consumer context.Context) {
@@ -62,8 +67,8 @@ func (s *Submission) Stop() {
 	}), s.priority)
 }
 
-func (s *Submission) Release() {
-	if s.c == nil || s.c.workers <= 0 {
+func (s *submission) Release() {
+	if s.c.workers <= 0 {
 		return
 	}
 	s.c.engine.Add(Func(func(consumer context.Context) {
@@ -72,9 +77,9 @@ func (s *Submission) Release() {
 	}), s.priority)
 }
 
-func (c *Cap) Submit(ctx context.Context, work Closure, priority int) *Submission {
-	s := &Submission{c: c, ctx: ctx, work: work, priority: priority, done: make(chan struct{})}
-	if c == nil || c.workers <= 0 {
+func (c *cap) Submit(ctx context.Context, work Closure, priority int) Submission {
+	s := &submission{c: c, ctx: ctx, work: work, priority: priority, done: make(chan struct{})}
+	if c.workers <= 0 {
 		s.place.Store(true)
 		close(s.done)
 		return s
@@ -98,7 +103,7 @@ func (c *Cap) Submit(ctx context.Context, work Closure, priority int) *Submissio
 	return s
 }
 
-func (c *Cap) startNext() {
+func (c *cap) startNext() {
 	for len(c.pending) > 0 {
 		s := c.pending[0]
 		if s.ctx.Err() != nil {
@@ -119,24 +124,24 @@ func (c *Cap) startNext() {
 	}
 }
 
-func (c *Cap) shift() {
+func (c *cap) shift() {
 	c.pending = c.pending[1:]
 	c.queued.Store(int64(len(c.pending)))
 }
 
-func (s *Submission) run() {
+func (s *submission) run() {
 	s.work.Resolve(s.ctx)
 	close(s.done)
 }
 
-func (s *Submission) settleStopped() {
+func (s *submission) settleStopped() {
 	stopCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	s.work.Resolve(stopCtx)
 	close(s.done)
 }
 
-func (s *Submission) drop() bool {
+func (s *submission) drop() bool {
 	for i, e := range s.c.pending {
 		if e.done == s.done {
 			s.c.pending = append(s.c.pending[:i], s.c.pending[i+1:]...)

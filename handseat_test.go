@@ -19,7 +19,7 @@ func TestASubmitRacingAReleaseNeverSeatsTwoOnOnePlace(t *testing.T) {
 		queued := make(chan struct{})
 		eng.Add(evt.Func(func(context.Context) { close(queued) }), 0)
 		<-queued
-		var s3 *evt.Submission
+		var s3 evt.Submission
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() { defer wg.Done(); s1.Release() }()

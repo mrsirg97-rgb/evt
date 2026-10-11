@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: test
+        run: go vet ./... && go test -race ./...
+      - name: fmt-check
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "fmt-check: unformatted files:" >&2
+            gofmt -l . >&2
+            exit 1
+          fi
+      # the module's promise: the standard library and nothing else
+      - name: the module requires nothing
+        run: |
+          if [ "$(go list -m all | wc -l)" -ne 1 ]; then
+            echo "the module requires something:" >&2
+            go list -m all >&2
+            exit 1
+          fi

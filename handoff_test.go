@@ -84,10 +84,10 @@ func TestOneCapServesSeveralSubmitters(t *testing.T) {
 	ranA, ranB := false, false
 	workA := evt.Func(func(context.Context) { ranA = true })
 	workB := evt.Func(func(context.Context) { ranB = true })
-	submitA := func() *evt.Submission {
+	submitA := func() evt.Submission {
 		return cap.Submit(ctx, workA, 30)
 	}
-	submitB := func() *evt.Submission {
+	submitB := func() evt.Submission {
 		return cap.Submit(ctx, workB, 30)
 	}
 	sa := submitA()
