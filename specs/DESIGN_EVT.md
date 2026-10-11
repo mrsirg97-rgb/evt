@@ -206,6 +206,31 @@ fd 3 carries the same bytes.
    pins the whole frame byte for byte: origin, ok, kind, payload, and
    a heartbeat's frame with no kind.
 
+## the hand-off
+
+The rule says three things; the 0.1.0 continuation adds the fourth, the
+one rig's delegate needed: **a cap** that gates how much work starts at
+once. `NewCap(workers)` — zero is no cap — hands out
+`Submit(ctx, work)`: a submit says whether the work started or queued,
+and a started work resolves right here, in the submitter's goroutine; a
+queued one sits in the cap's queue and resolves exactly once later —
+when a place frees (the cap resolves it on its own goroutine, with the
+context the submitter handed in) or when the submitter stops it
+(`Stop` settles it with a stopped context and it never starts). The
+submission carries the settle: `Settled` closes when the work's resolve
+returns, whichever way it went. The cap reports what it holds:
+`InFlight`, `Queued`, and its own `Size`. One cap serves several
+submitters — the value is the whole contract; nothing per-submitter to
+wire.
+
+Checked against what the module had: none of the four existed. The
+engine's `Add` answers an id, never started-or-queued; the engine counts
+nothing in flight; nothing shared a cap; a pending event dropped at
+`Stop` settles nothing. The hand-off is engine-free on purpose: the
+work's own posts flow through whatever engine its application runs —
+rig's returns ride the room — and the hand-off only gates the starts and
+owns the settle. One test per addition, as the additions landed.
+
 ## what stays in rig
 
 `swarm` (662 lines) and `tool/delegate` (551 lines) stay: they are the
