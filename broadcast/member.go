@@ -3,7 +3,7 @@ package broadcast
 import (
 	"context"
 
-	"github.com/mrsirg97-rgb/evt/event"
+	"github.com/mrsirg97-rgb/evt"
 )
 
 type Member interface {
@@ -51,8 +51,8 @@ func (m *member) Subscribe(ctx context.Context, callback func(err error, message
 	m.transport.Recv(ctx, callback)
 }
 
-func Say(m Member, source, text string, level ...event.Level) {
-	n := event.Notice{Source: source, Text: text}
+func Say(m Member, source, text string, level ...evt.Level) {
+	n := evt.Notice{Source: source, Text: text}
 	if len(level) > 0 {
 		n.Level = level[0]
 	}

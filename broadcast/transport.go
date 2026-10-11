@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/mrsirg97-rgb/evt"
-	"github.com/mrsirg97-rgb/evt/event"
 )
 
 type Transport interface {
@@ -44,10 +43,10 @@ func stateKey(messages []Message) (string, bool) {
 		return "", false
 	}
 	m := messages[0]
-	switch ev := m.Event().(type) {
+	switch ev := m.Signal().(type) {
 	case nil:
 		return fmt.Sprintf("%d/heartbeat", m.Origin()), true
-	case event.Snapshot:
+	case evt.Snapshot:
 		return fmt.Sprintf("%d/%T", m.Origin(), ev), true
 	}
 	return "", false

@@ -1,4 +1,15 @@
-package event
+package evt
+
+type Signal interface{ signal() }
+
+type Mark struct{}
+
+func (Mark) signal() {}
+
+type Snapshot interface {
+	Signal
+	Snapshot()
+}
 
 type Level int
 
@@ -24,6 +35,6 @@ type Notice struct {
 	Level  Level
 }
 
-func (Notice) event() {}
+func (Notice) signal() {}
 
-var _ Event = Notice{}
+var _ Signal = Notice{}

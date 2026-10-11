@@ -8,20 +8,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrsirg97-rgb/evt"
 	"github.com/mrsirg97-rgb/evt/broadcast"
-	"github.com/mrsirg97-rgb/evt/event"
 )
 
 type delta struct {
 	Text string
 
-	event.Marker
+	evt.Mark
 }
 
 type ghost struct {
 	Why string
 
-	event.Marker
+	evt.Mark
 }
 
 func wireRegistry(kinds ...string) broadcast.Registry {
@@ -31,9 +31,9 @@ func wireRegistry(kinds ...string) broadcast.Registry {
 		switch kind {
 		case "notice":
 			reg, err = broadcast.Declare(reg, "notice",
-				func(n event.Notice) ([]byte, error) { return json.Marshal(n) },
-				func(b []byte) (event.Notice, error) {
-					var n event.Notice
+				func(n evt.Notice) ([]byte, error) { return json.Marshal(n) },
+				func(b []byte) (evt.Notice, error) {
+					var n evt.Notice
 					return n, json.Unmarshal(b, &n)
 				})
 		case "status":
@@ -61,7 +61,7 @@ func wireRegistry(kinds ...string) broadcast.Registry {
 func TestTheEncoderRoundTripsTheRegisteredKinds(t *testing.T) {
 	enc := broadcast.NewJSONEncoder(wireRegistry("notice", "status", "delta"))
 	for _, m := range []broadcast.Message{
-		broadcast.NewMessage(4, true, event.Notice{Source: "decision", Text: "review: settled 10"}),
+		broadcast.NewMessage(4, true, evt.Notice{Source: "decision", Text: "review: settled 10"}),
 		broadcast.NewMessage(4, true, workers{Pending: 7, Names: []string{"t3"}}),
 		broadcast.NewMessage(4, true, delta{Text: "weighing"}),
 		broadcast.Heartbeat(4, false),
@@ -77,19 +77,19 @@ func TestTheEncoderRoundTripsTheRegisteredKinds(t *testing.T) {
 		if back.Origin() != 4 || back.Ok() != m.Ok() {
 			t.Fatalf("round trip lost the envelope: %+v", back)
 		}
-		switch want := m.Event().(type) {
+		switch want := m.Signal().(type) {
 		case nil:
-			if back.Event() != nil {
-				t.Fatal("a heartbeat decodes to no event")
+			if back.Signal() != nil {
+				t.Fatal("a heartbeat decodes to no signal")
 			}
 		case workers:
-			got := back.Event().(workers)
+			got := back.Signal().(workers)
 			if got.Pending != want.Pending || len(got.Names) != len(want.Names) || got.Names[0] != want.Names[0] {
 				t.Fatalf("status round trip = %+v", got)
 			}
 		default:
-			if back.Event() != want {
-				t.Fatalf("round trip = %+v, want %+v", back.Event(), want)
+			if back.Signal() != want {
+				t.Fatalf("round trip = %+v, want %+v", back.Signal(), want)
 			}
 		}
 	}
@@ -97,7 +97,7 @@ func TestTheEncoderRoundTripsTheRegisteredKinds(t *testing.T) {
 
 func TestTheFrameIsTheShapeTheWireSpeaks(t *testing.T) {
 	enc := broadcast.NewJSONEncoder(wireRegistry("notice"))
-	raw, err := enc.Encode(broadcast.NewMessage(4, true, event.Notice{Source: "w4", Text: "hi"}))
+	raw, err := enc.Encode(broadcast.NewMessage(4, true, evt.Notice{Source: "w4", Text: "hi"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,13 +136,13 @@ func TestAnUnknownKindErrorsAtTheReceiver(t *testing.T) {
 func TestDeclareRefusesADuplicateKindOrType(t *testing.T) {
 	reg := wireRegistry("notice")
 	if _, err := broadcast.Declare(reg, "notice",
-		func(n event.Notice) ([]byte, error) { return json.Marshal(n) },
-		func(b []byte) (event.Notice, error) { var n event.Notice; return n, json.Unmarshal(b, &n) }); err == nil || !strings.Contains(err.Error(), `registered twice`) {
+		func(n evt.Notice) ([]byte, error) { return json.Marshal(n) },
+		func(b []byte) (evt.Notice, error) { var n evt.Notice; return n, json.Unmarshal(b, &n) }); err == nil || !strings.Contains(err.Error(), `registered twice`) {
 		t.Fatalf("a duplicate kind refuses, got %v", err)
 	}
 	if _, err := broadcast.Declare(reg, "notice2",
-		func(n event.Notice) ([]byte, error) { return json.Marshal(n) },
-		func(b []byte) (event.Notice, error) { var n event.Notice; return n, json.Unmarshal(b, &n) }); err == nil || !strings.Contains(err.Error(), "registered twice") {
+		func(n evt.Notice) ([]byte, error) { return json.Marshal(n) },
+		func(b []byte) (evt.Notice, error) { var n evt.Notice; return n, json.Unmarshal(b, &n) }); err == nil || !strings.Contains(err.Error(), "registered twice") {
 		t.Fatalf("a duplicate type under a new kind refuses, got %v", err)
 	}
 }
@@ -160,7 +160,7 @@ func TestARegistryIsNotMutatedByDeclare(t *testing.T) {
 	}
 }
 
-func TestARoomOverAPipeCarriesEventsTheFarEndNeverHeardOf(t *testing.T) {
+func TestARoomOverAPipeCarriesSignalsTheFarEndNeverHeardOf(t *testing.T) {
 	r2, w2, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -189,11 +189,11 @@ func TestARoomOverAPipeCarriesEventsTheFarEndNeverHeardOf(t *testing.T) {
 		t.Fatalf("a registered kind crosses the pipe: %v", ack)
 	}
 	ear.await(t, 1)
-	if st := ear.got[0][0].Event().(workers); st.Pending != 3 || ear.got[0][0].Origin() != 1 {
+	if st := ear.got[0][0].Signal().(workers); st.Pending != 3 || ear.got[0][0].Origin() != 1 {
 		t.Fatalf("the snapshot does not survive the pipe: %+v", ear.got[0][0])
 	}
 
-	a.Publish(ctx, func(e error) { ack = e }, broadcast.NewMessage(1, true, event.Notice{Source: "w1", Text: "hi"}))
+	a.Publish(ctx, func(e error) { ack = e }, broadcast.NewMessage(1, true, evt.Notice{Source: "w1", Text: "hi"}))
 	if ack != nil {
 		t.Fatalf("the member's own kind still crosses: %v", ack)
 	}

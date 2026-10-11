@@ -79,7 +79,7 @@ func (c *Cap) Submit(ctx context.Context, work Closure, priority int) *Submissio
 		close(s.done)
 		return s
 	}
-	for {
+	for c.queued.Load() == 0 {
 		held := c.started.Load()
 		if held >= int64(c.workers) {
 			break
@@ -99,22 +99,29 @@ func (c *Cap) Submit(ctx context.Context, work Closure, priority int) *Submissio
 }
 
 func (c *Cap) startNext() {
-	for {
-		if int(c.started.Load()) >= c.workers || len(c.pending) == 0 {
-			return
-		}
+	for len(c.pending) > 0 {
 		s := c.pending[0]
-		c.pending = c.pending[1:]
-		c.queued.Store(int64(len(c.pending)))
 		if s.ctx.Err() != nil {
+			c.shift()
 			s.settleStopped()
 			continue
 		}
-		c.started.Add(1)
+		held := c.started.Load()
+		if held >= int64(c.workers) {
+			return
+		}
+		if !c.started.CompareAndSwap(held, held+1) {
+			continue
+		}
+		c.shift()
 		s.place.Store(true)
 		go s.run()
-		return
 	}
+}
+
+func (c *Cap) shift() {
+	c.pending = c.pending[1:]
+	c.queued.Store(int64(len(c.pending)))
 }
 
 func (s *Submission) run() {

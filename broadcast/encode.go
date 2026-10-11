@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/mrsirg97-rgb/evt/event"
+	"github.com/mrsirg97-rgb/evt"
 )
 
 type codec struct {
 	kind   string
-	encode func(event.Event) ([]byte, error)
-	decode func([]byte) (event.Event, error)
+	encode func(evt.Signal) ([]byte, error)
+	decode func([]byte) (evt.Signal, error)
 }
 
 type Registry struct {
@@ -23,11 +23,11 @@ func NewRegistry() Registry {
 	return Registry{byType: map[reflect.Type]codec{}, byKind: map[string]codec{}}
 }
 
-func Declare[T event.Event](r Registry, kind string, encode func(T) ([]byte, error), decode func([]byte) (T, error)) (Registry, error) {
+func Declare[T evt.Signal](r Registry, kind string, encode func(T) ([]byte, error), decode func([]byte) (T, error)) (Registry, error) {
 	var sample T
 	typ := reflect.TypeOf(sample)
 	if typ == nil {
-		return Registry{}, fmt.Errorf("broadcast: %q declares an interface, not an event type", kind)
+		return Registry{}, fmt.Errorf("broadcast: %q declares an interface, not a signal type", kind)
 	}
 	if _, dup := r.byType[typ]; dup {
 		return Registry{}, fmt.Errorf("broadcast: %T is registered twice", sample)
@@ -37,10 +37,10 @@ func Declare[T event.Event](r Registry, kind string, encode func(T) ([]byte, err
 	}
 	c := codec{
 		kind: kind,
-		encode: func(ev event.Event) ([]byte, error) {
+		encode: func(ev evt.Signal) ([]byte, error) {
 			return encode(ev.(T))
 		},
-		decode: func(raw []byte) (event.Event, error) {
+		decode: func(raw []byte) (evt.Signal, error) {
 			return decode(raw)
 		},
 	}
@@ -74,7 +74,7 @@ type jsonEncoder struct {
 
 func (e *jsonEncoder) Encode(message Message) ([]byte, error) {
 	frame := JSONMessage{Origin: message.Origin(), Ok: message.Ok()}
-	if ev := message.Event(); ev != nil {
+	if ev := message.Signal(); ev != nil {
 		c, ok := e.reg.byType[reflect.TypeOf(ev)]
 		if !ok {
 			return nil, fmt.Errorf("broadcast: %T does not cross a transport", ev)

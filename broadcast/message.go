@@ -1,25 +1,25 @@
 package broadcast
 
 import (
-	"github.com/mrsirg97-rgb/evt/event"
+	"github.com/mrsirg97-rgb/evt"
 )
 
 type Message interface {
 	Origin() int64
 	Ok() bool
-	Event() event.Event
+	Signal() evt.Signal
 }
 
 type message struct {
 	origin int64
 	ok     bool
-	event  event.Event
+	signal evt.Signal
 }
 
-func NewMessage(origin int64, ok bool, event ...event.Event) Message {
+func NewMessage(origin int64, ok bool, signal ...evt.Signal) Message {
 	message := &message{origin: origin, ok: ok}
-	if len(event) > 0 {
-		message.event = event[0]
+	if len(signal) > 0 {
+		message.signal = signal[0]
 	}
 	return message
 }
@@ -36,6 +36,6 @@ func (m *message) Ok() bool {
 	return m.ok
 }
 
-func (m *message) Event() event.Event {
-	return m.event
+func (m *message) Signal() evt.Signal {
+	return m.signal
 }

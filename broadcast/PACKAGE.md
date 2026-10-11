@@ -3,14 +3,14 @@
 ## What it is
 
 The room: a `Room` of `Member`s, each speaking through a `Transport`,
-exchanging `Message`s that carry an origin, the member's health, and an
-event. A message with no event is a heartbeat. Nothing in the package
-names an application's type: the payload is `event.Event`, and the one
-voice is `event.Notice`. Imports `event` and `evt` only.
+exchanging `Message`s that carry an origin, the member's health, and a
+signal. A message with no signal is a heartbeat. Nothing in the package
+names an application's type: the payload is `evt.Signal`, and the one
+voice is `evt.Notice`. Imports `evt` only.
 
 ## What it includes
 
-- `message.go`: `Message` (`Origin`, `Ok`, `Event`), `NewMessage`,
+- `message.go`: `Message` (`Origin`, `Ok`, `Signal`), `NewMessage`,
   `Heartbeat`.
 - `transport.go`: `Transport` (`Send` with an ack callback, `Recv` with
   a messages callback, `Close`) and the loop transport,
@@ -19,7 +19,7 @@ voice is `event.Notice`. Imports `event` and `evt` only.
   durability and an event stays until the consumer runs it; the receive
   is the callback the closure resolves to on the loop's goroutine; one
   heartbeat waits per member, a second one before the first ran is not
-  posted. A heartbeat, or a snapshot (`event.Snapshot`), is a state and
+  posted. A heartbeat, or a snapshot (`evt.Snapshot`), is a state and
   not a story: a later one replaces the waiting value instead of
   posting again. A subscriber's context ending is reported to it once
   and ends the deliveries.
@@ -27,7 +27,7 @@ voice is `event.Notice`. Imports `event` and `evt` only.
   itself, `Publish` to the room, `Subscribe` to what arrives, `Leave`
   (closes the transport, leaves the room). Every call threads the
   caller's context. `Say(member, source, text, level...)` publishes one
-  `event.Notice`: the one voice every background subsystem speaks with;
+  `evt.Notice`: the one voice every background subsystem speaks with;
   the level is chosen where the text is made.
 - `room.go`: `Room`, built with the transport its members speak
   through (`NewRoom(id, func(origin) Transport)`): `Add`, `Remove`,
@@ -47,15 +47,15 @@ voice is `event.Notice`. Imports `event` and `evt` only.
   rule is to fail closed.
 - `encode.go`: the wire. The frame is origin, ok, kind, payload, JSON,
   one frame per line; a frame with no kind is a heartbeat. The
-  `Registry` maps a kind to one event type's two directions: the
-  application declares each event type it sends, once, by name, with
+  `Registry` maps a kind to one signal type's two directions: the
+  application declares each signal type it sends, once, by name, with
   how to encode and decode it; a duplicate kind or type refuses. The
   registry is built whole — every `Declare` returns a fresh registry,
   nothing mutates in place — and handed to the codec when it is
   constructed (`NewJSONEncoder(reg)`). An unregistered type on `Send`
   is an error at the sender, naming the type; an unknown kind on `Recv`
   is an error the receiver reports once. No reflection over fields; the
-  codecs key on the event's dynamic type.
+  codecs key on the signal's dynamic type.
 
 ## How it is consumed
 

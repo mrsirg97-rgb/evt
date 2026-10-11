@@ -13,7 +13,6 @@ import (
 
 	"github.com/mrsirg97-rgb/evt"
 	"github.com/mrsirg97-rgb/evt/broadcast"
-	"github.com/mrsirg97-rgb/evt/event"
 )
 
 const prioRoom = 30
@@ -60,7 +59,7 @@ type workers struct {
 	Pending int
 	Names   []string
 
-	event.Marker
+	evt.Mark
 }
 
 func (workers) Snapshot() {}
@@ -68,17 +67,17 @@ func (workers) Snapshot() {}
 type testEncoder struct{}
 
 type frame struct {
-	Origin int64         `json:"origin"`
-	Ok     bool          `json:"ok"`
-	Notice *event.Notice `json:"notice,omitempty"`
-	Status *workers      `json:"status,omitempty"`
+	Origin int64       `json:"origin"`
+	Ok     bool        `json:"ok"`
+	Notice *evt.Notice `json:"notice,omitempty"`
+	Status *workers    `json:"status,omitempty"`
 }
 
 func (testEncoder) Encode(m broadcast.Message) ([]byte, error) {
 	f := frame{Origin: m.Origin(), Ok: m.Ok()}
-	switch ev := m.Event().(type) {
+	switch ev := m.Signal().(type) {
 	case nil:
-	case event.Notice:
+	case evt.Notice:
 		f.Notice = &ev
 	case workers:
 		f.Status = &ev
@@ -120,7 +119,7 @@ func TestABroadcastReachesEveryOtherMemberOnceOnTheLoop(t *testing.T) {
 	b.Subscribe(ctx, ib.take)
 	c.Subscribe(ctx, ic.take)
 	var ack error
-	a.Publish(ctx, func(e error) { ack = e }, broadcast.NewMessage(1, true, event.Notice{Source: "swarm", Text: "claimed t3"}))
+	a.Publish(ctx, func(e error) { ack = e }, broadcast.NewMessage(1, true, evt.Notice{Source: "swarm", Text: "claimed t3"}))
 	if ack != nil {
 		t.Fatalf("a post is the ack, got %v", ack)
 	}
@@ -133,7 +132,7 @@ func TestABroadcastReachesEveryOtherMemberOnceOnTheLoop(t *testing.T) {
 	ic.await(t, 1)
 	for name, in := range map[string]*inbox{"b": ib, "c": ic} {
 		msgs := in.got[0]
-		if len(msgs) != 1 || msgs[0].Origin() != 1 || msgs[0].Event().(event.Notice).Text != "claimed t3" {
+		if len(msgs) != 1 || msgs[0].Origin() != 1 || msgs[0].Signal().(evt.Notice).Text != "claimed t3" {
 			t.Fatalf("%s received %+v, want the one notice from 1", name, msgs)
 		}
 	}
@@ -153,7 +152,7 @@ func TestTheQueueIsTheDurabilityAndTheAckIsThePost(t *testing.T) {
 			if e != nil {
 				t.Fatalf("publish %d acked %v with no consumer running", i, e)
 			}
-		}, broadcast.NewMessage(1, true, event.Notice{Source: "swarm", Text: "n"}))
+		}, broadcast.NewMessage(1, true, evt.Notice{Source: "swarm", Text: "n"}))
 	}
 	if n := len(engine.Pending()); n != 3 {
 		t.Fatalf("three events held for the consumer, got %d", n)
@@ -179,7 +178,7 @@ func TestOnePendingHeartbeatPerMember(t *testing.T) {
 	if n := len(engine.Pending()); n != 1 {
 		t.Fatalf("five heartbeats before the consumer runs are one event, got %d", n)
 	}
-	a.Publish(ctx, func(error) {}, broadcast.NewMessage(1, true, event.Notice{Source: "swarm", Text: "real"}))
+	a.Publish(ctx, func(error) {}, broadcast.NewMessage(1, true, evt.Notice{Source: "swarm", Text: "real"}))
 	if n := len(engine.Pending()); n != 2 {
 		t.Fatalf("a real message is never coalesced, got %d", n)
 	}
@@ -188,7 +187,7 @@ func TestOnePendingHeartbeatPerMember(t *testing.T) {
 	in.await(t, 2)
 	a.Publish(ctx, func(error) {}, broadcast.Heartbeat(1, true))
 	in.await(t, 3)
-	if in.got[0][0].Event() != nil || in.got[2][0].Event() != nil {
+	if in.got[0][0].Signal() != nil || in.got[2][0].Signal() != nil {
 		t.Fatal("after the first heartbeat ran, the next one posts again")
 	}
 }
@@ -210,7 +209,7 @@ func TestALeftMemberIsNamedInTheMiss(t *testing.T) {
 		t.Fatalf("after the leave members = %v", ids)
 	}
 	var ack error
-	a.Publish(ctx, func(e error) { ack = e }, broadcast.NewMessage(1, true, event.Notice{Source: "x", Text: "y"}))
+	a.Publish(ctx, func(e error) { ack = e }, broadcast.NewMessage(1, true, evt.Notice{Source: "x", Text: "y"}))
 	if ack != nil {
 		t.Fatalf("a member that left is not a target, got %v", ack)
 	}
@@ -263,7 +262,7 @@ func TestASubscriberCancelHearsItAndStopsReceiving(t *testing.T) {
 	}
 	go engine.Start(context.Background())
 	defer engine.Stop()
-	a.Publish(context.Background(), func(error) {}, broadcast.NewMessage(1, true, event.Notice{Source: "swarm", Text: "late"}))
+	a.Publish(context.Background(), func(error) {}, broadcast.NewMessage(1, true, evt.Notice{Source: "swarm", Text: "late"}))
 	time.Sleep(50 * time.Millisecond)
 	if in.batches() != 0 {
 		t.Fatal("a canceled subscriber receives nothing more")
@@ -288,10 +287,10 @@ func TestAHeartbeatAndASnapshotFromOneSenderWaitApart(t *testing.T) {
 	go engine.Start(ctx)
 	defer engine.Stop()
 	in.await(t, 2)
-	if in.got[0][0].Event() != nil {
+	if in.got[0][0].Signal() != nil {
 		t.Fatal("the heartbeat lands first and empty")
 	}
-	if st := in.got[1][0].Event().(workers); st.Pending != 3 {
+	if st := in.got[1][0].Signal().(workers); st.Pending != 3 {
 		t.Fatalf("the snapshot lands with the latest value, got %d", st.Pending)
 	}
 }
@@ -318,7 +317,7 @@ func TestASnapshotKeepsOnePendingPerSenderWithTheLatestValue(t *testing.T) {
 	for i := 1; i <= 4; i++ {
 		a.Publish(ctx, func(error) {}, broadcast.NewMessage(1, true, workers{Pending: i}))
 	}
-	a.Publish(ctx, func(error) {}, broadcast.NewMessage(1, true, event.Notice{Source: "swarm", Text: "a story, not a state"}))
+	a.Publish(ctx, func(error) {}, broadcast.NewMessage(1, true, evt.Notice{Source: "swarm", Text: "a story, not a state"}))
 	room.Add(3).Publish(ctx, func(error) {}, broadcast.NewMessage(3, true, workers{Pending: 9}))
 	if n := len(engine.Pending()); n != 4 {
 		t.Fatalf("four snapshots from one sender are one event to b, the notice is its own, the third member's snapshot is one each to a and b: got %d", n)
@@ -326,7 +325,7 @@ func TestASnapshotKeepsOnePendingPerSenderWithTheLatestValue(t *testing.T) {
 	go engine.Start(ctx)
 	defer engine.Stop()
 	in.await(t, 3)
-	if st := in.got[0][0].Event().(workers); st.Pending != 4 {
+	if st := in.got[0][0].Signal().(workers); st.Pending != 4 {
 		t.Fatalf("the frame that lands is the latest, got %d", st.Pending)
 	}
 }
@@ -357,7 +356,7 @@ func TestPipeTransportCarriesFramesAcrossAnOSPipeAndReportsTheEndOnce(t *testing
 			t.Errorf("ack = %v", ack)
 		}
 		acks++
-	}, broadcast.Heartbeat(4, true), broadcast.NewMessage(4, true, event.Notice{Source: "w4", Text: "hi"}))
+	}, broadcast.Heartbeat(4, true), broadcast.NewMessage(4, true, evt.Notice{Source: "w4", Text: "hi"}))
 	if acks != 1 {
 		t.Fatalf("one send is one ack, got %d", acks)
 	}
@@ -368,7 +367,7 @@ func TestPipeTransportCarriesFramesAcrossAnOSPipeAndReportsTheEndOnce(t *testing
 		n, e := len(got), ends
 		mu.Unlock()
 		if e == 1 {
-			if n != 2 || got[0].Event() != nil || got[1].Event().(event.Notice).Text != "hi" {
+			if n != 2 || got[0].Signal() != nil || got[1].Signal().(evt.Notice).Text != "hi" {
 				t.Fatalf("frames = %d %+v, want the heartbeat then the notice", n, got)
 			}
 			break

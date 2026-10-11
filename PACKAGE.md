@@ -2,13 +2,14 @@
 
 ## What it is
 
-The event loop (SPEC_EVT): libevt's shape (`~/Projects/libtrdr`,
-`src/libevt`) made Go-centric. One consumer, many producers; work
-arrives as closures ordered by priority then arrival; the consumer
-executes one at a time outside the queue's lock. A leaf, stdlib only;
-the module's root package, so `import ".../evt"` is the engine. The
-turn loop is its consumer (SPEC_EVT phase 2): every step of a turn is a
-closure on the loop goroutine.
+The event loop (SPEC_EVT): libevt's shape made Go-centric. One
+consumer, many producers; work arrives as closures ordered by priority
+then arrival; the consumer executes one at a time outside the queue's
+lock. A leaf, stdlib only; the module's root package, so
+`import ".../evt"` is the engine. Beside the engine sit the two things
+built on it that every application needs: the signal (what happened,
+told to whoever listens) and the hand-off (a cap on how much work
+starts at once).
 
 ## What it includes
 
@@ -32,6 +33,22 @@ closure on the loop goroutine.
   `WithCapacity`.
 - `Scheduler`: the harness: `Start() error` (`ErrNoEngine`,
   `ErrStarted`), `Schedule`, `Stop` (cancel, stop, join), `Done`.
+- `signal.go`: `Signal`, an interface whose method is unexported, so a
+  type is a signal only by carrying `Mark` (embed it; it adds no bytes
+  to the type's JSON). `Snapshot` is a signal that is a state and not a
+  story. `Notice` (`Source`, `Text`, `Level`) is the one voice a
+  background subsystem speaks with; `Level` is info, success or error.
+  `Event` is work the engine runs; `Signal` is what an application
+  tells: the two words never mean the same thing.
+- `handoff.go`: `NewCap(engine, workers)` (zero, or a nil cap, is no
+  cap) and `Submit(ctx, work, priority)`. A submission that `Started`
+  holds a place and the submitter runs the work itself; a queued one is
+  resolved by the cap on its own goroutine when a place frees, with the
+  submitter's context. `Release` frees the place and starts the next
+  queued work, in submit order; `Stop` settles a queued work with a
+  stopped context and never starts it; `Settled` closes either way.
+  `Size`, `InFlight`, `Queued` report what the cap holds. The queue is
+  touched only by the consumer.
 
 ## How it is consumed
 
