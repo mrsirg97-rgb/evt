@@ -2,76 +2,106 @@ package evt
 
 import (
 	"context"
-	"sync"
+	"sync/atomic"
 )
 
 type Cap struct {
-	mu     sync.Mutex
-	places chan struct{}
-	queue  []Submission
+	engine  Engine
+	workers int
+	started atomic.Int64
+	queued  atomic.Int64
+	pending []*Submission
 }
 
-func NewCap(workers int) *Cap {
-	if workers <= 0 {
-		return &Cap{}
-	}
-	return &Cap{places: make(chan struct{}, workers)}
+func NewCap(engine Engine, workers int) *Cap {
+	return &Cap{engine: engine, workers: workers}
 }
 
 func (c *Cap) Size() int {
-	return cap(c.places)
+	return c.workers
 }
 
 func (c *Cap) InFlight() int {
-	return len(c.places)
+	return int(c.started.Load())
 }
 
 func (c *Cap) Queued() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.queue)
+	return int(c.queued.Load())
 }
 
 type Submission struct {
-	c       *Cap
-	ctx     context.Context
-	work    Closure
-	done    chan struct{}
-	started bool
+	c        *Cap
+	ctx      context.Context
+	work     Closure
+	priority int
+	done     chan struct{}
+	place    atomic.Bool
 }
 
-func (s Submission) Started() bool { return s.started }
+func (s *Submission) Started() bool { return s.place.Load() }
 
-func (s Submission) Settled() <-chan struct{} { return s.done }
+func (s *Submission) Settled() <-chan struct{} { return s.done }
 
-func (s Submission) Stop() {
-	if s.started {
+func (s *Submission) Stop() {
+	if s.place.Load() {
 		return
 	}
-	s.c.settle(s)
+	s.c.engine.Add(Func(func(consumer context.Context) {
+		s.drop()
+		s.settleStopped()
+	}), s.priority)
 }
 
-func (c *Cap) Submit(ctx context.Context, work Closure) Submission {
-	s := Submission{c: c, ctx: ctx, work: work, done: make(chan struct{})}
-	if c.places == nil {
-		s.start(ctx)
+func (s *Submission) Release() {
+	s.c.engine.Add(Func(func(consumer context.Context) {
+		s.c.started.Add(-1)
+		s.c.startNext()
+	}), s.priority)
+}
+
+func (c *Cap) Submit(ctx context.Context, work Closure, priority int) *Submission {
+	s := &Submission{c: c, ctx: ctx, work: work, priority: priority, done: make(chan struct{})}
+	if c.workers <= 0 {
+		s.place.Store(true)
+		close(s.done)
 		return s
 	}
-	select {
-	case c.places <- struct{}{}:
-		s.start(ctx)
-	default:
-		c.mu.Lock()
-		c.queue = append(c.queue, s)
-		c.mu.Unlock()
+	for {
+		held := c.started.Load()
+		if held >= int64(c.workers) {
+			break
+		}
+		if c.started.CompareAndSwap(held, held+1) {
+			s.place.Store(true)
+			close(s.done)
+			return s
+		}
 	}
+	c.engine.Add(Func(func(consumer context.Context) {
+		c.pending = append(c.pending, s)
+		c.queued.Store(int64(len(c.pending)))
+		c.startNext()
+	}), priority)
 	return s
 }
 
-func (s *Submission) start(ctx context.Context) {
-	s.started = true
-	s.work.Resolve(ctx)
-	close(s.done)
+func (c *Cap) startNext() {
+	for {
+		if int(c.started.Load()) >= c.workers || len(c.pending) == 0 {
+			return
+		}
+		s := c.pending[0]
+		c.pending = c.pending[1:]
+		c.queued.Store(int64(len(c.pending)))
+		if s.ctx.Err() != nil {
+			s.settleStopped()
+			continue
+		}
+		c.started.Add(1)
+		s.place.Store(true)
+		go s.run()
+		return
+	}
 }
 
 func (s *Submission) run() {
@@ -86,42 +116,12 @@ func (s *Submission) settleStopped() {
 	close(s.done)
 }
 
-func (c *Cap) Release() {
-	if c.places == nil {
-		return
-	}
-	<-c.places
-	c.mu.Lock()
-	var live *Submission
-	stopped := make([]*Submission, 0, len(c.queue))
-	for len(c.queue) > 0 {
-		s := c.queue[0]
-		c.queue = c.queue[1:]
-		if s.ctx.Err() == nil {
-			live = &s
-			break
-		}
-		stopped = append(stopped, &s)
-	}
-	c.mu.Unlock()
-	for _, s := range stopped {
-		s.settleStopped()
-	}
-	if live != nil {
-		c.places <- struct{}{}
-		go live.run()
-	}
-}
-
-func (c *Cap) settle(s Submission) {
-	c.mu.Lock()
-	for i, e := range c.queue {
+func (s *Submission) drop() {
+	for i, e := range s.c.pending {
 		if e.done == s.done {
-			c.queue = append(c.queue[:i], c.queue[i+1:]...)
-			c.mu.Unlock()
-			s.settleStopped()
+			s.c.pending = append(s.c.pending[:i], s.c.pending[i+1:]...)
+			s.c.queued.Store(int64(len(s.c.pending)))
 			return
 		}
 	}
-	c.mu.Unlock()
 }

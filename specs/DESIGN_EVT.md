@@ -210,24 +210,40 @@ fd 3 carries the same bytes.
 
 The rule says three things; the 0.1.0 continuation adds the fourth, the
 one rig's delegate needed: **a cap** that gates how much work starts at
-once. `NewCap(workers)` — zero is no cap — hands out
-`Submit(ctx, work)`: a submit says whether the work started or queued,
-and a started work resolves right here, in the submitter's goroutine; a
-queued one sits in the cap's queue and resolves exactly once later —
-when a place frees (the cap resolves it on its own goroutine, with the
-context the submitter handed in) or when the submitter stops it
-(`Stop` settles it with a stopped context and it never starts). The
-submission carries the settle: `Settled` closes when the work's resolve
-returns, whichever way it went. The cap reports what it holds:
-`InFlight`, `Queued`, and its own `Size`. One cap serves several
-submitters — the value is the whole contract; nothing per-submitter to
-wire.
+once. `NewCap(engine, workers)` — zero is no cap — hands out
+`Submit(ctx, work, priority)`: a submit says whether the work started or
+queued, and a started work is resolved by the submitter in its own
+goroutine, right where the call returns; a queued one becomes an event
+at the priority the submit named. **The cap's state is touched only by
+the consumer.** The queue is a slice only the consumer's closures read
+and write — no mutex, and no channel standing in for a counter; the two
+counts are atomics. A submit, a release and a stop are events, so the
+append that queues work and the pop that starts it can never interleave:
+the same body that appends checks whether a place is free and starts the
+work itself. A completion is the release: `Release` posts one event at
+the priority the submit named, and its body frees the place and starts
+the next queued work, which the cap resolves on its own goroutine with
+the context the submitter handed in — the work may be minutes long and
+the loop must not stall. `Stop` posts the same kind of event and settles
+the work with a stopped context; it never starts. The submission carries
+the settle: `Settled` closes when the work's resolve returns, whichever
+way it went. The cap reports what it holds: `InFlight`, `Queued`, and
+its own `Size`. One cap serves several submitters — the value is the
+whole contract; nothing per-submitter to wire.
+
+The first cut was a mutex and a buffered channel, and it was not safe: a
+submit that fails to take a place and a release that finds the queue
+empty interleave, leaving work queued with a place free and nothing to
+start it — reproduced in 14 of 300,000 rounds, one release racing one
+submit on a cap of 1. The rebuild moves the state behind the consumer;
+the race test, one release racing one submit for 300,000 rounds, is the
+proof the shape cannot lose a wakeup.
 
 Checked against what the module had: none of the four existed. The
 engine's `Add` answers an id, never started-or-queued; the engine counts
 nothing in flight; nothing shared a cap; a pending event dropped at
-`Stop` settles nothing. The hand-off is engine-free on purpose: the
-work's own posts flow through whatever engine its application runs —
+`Stop` settles nothing. The hand-off borrows the engine, not the room:
+the work's own posts flow through whatever engine its application runs —
 rig's returns ride the room — and the hand-off only gates the starts and
 owns the settle. One test per addition, as the additions landed.
 
