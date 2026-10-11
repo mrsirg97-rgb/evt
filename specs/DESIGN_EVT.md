@@ -199,6 +199,12 @@ fd 3 carries the same bytes.
    them changes exactly one line per file — the import path — which is
    the diff this move's rule names. The six sources are byte-identical;
    no other change was needed.
+8. **The payload's JSON carries the Go field names** (`{"Source":…,
+   "Text":…, "Level":0}`): rig's `core` types never carried tags and
+   the fleet pipe's bytes must not move, so `event.Notice` moves
+   without tags and rig's lift must not add any. The frame-shape test
+   pins the whole frame byte for byte: origin, ok, kind, payload, and
+   a heartbeat's frame with no kind.
 
 ## what stays in rig
 
