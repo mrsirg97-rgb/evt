@@ -194,6 +194,11 @@ fd 3 carries the same bytes.
    directive in rig's tree, no workspace file committed. evtjs (which
    imports rig's `evt` at its pinned rig version today) and the 3.0.0
    proxy are waiting consumers; both are out of scope here.
+7. **The engine's tests are external test packages** (`package
+   evt_test`), so they import the engine by its module path. Moving
+   them changes exactly one line per file — the import path — which is
+   the diff this move's rule names. The six sources are byte-identical;
+   no other change was needed.
 
 ## what stays in rig
 
