@@ -18,14 +18,23 @@ func NewCap(engine Engine, workers int) *Cap {
 }
 
 func (c *Cap) Size() int {
+	if c == nil {
+		return 0
+	}
 	return c.workers
 }
 
 func (c *Cap) InFlight() int {
+	if c == nil {
+		return 0
+	}
 	return int(c.started.Load())
 }
 
 func (c *Cap) Queued() int {
+	if c == nil {
+		return 0
+	}
 	return int(c.queued.Load())
 }
 
@@ -43,16 +52,20 @@ func (s *Submission) Started() bool { return s.place.Load() }
 func (s *Submission) Settled() <-chan struct{} { return s.done }
 
 func (s *Submission) Stop() {
-	if s.place.Load() {
+	if s.place.Load() || s.c == nil || s.c.workers <= 0 {
 		return
 	}
 	s.c.engine.Add(Func(func(consumer context.Context) {
-		s.drop()
-		s.settleStopped()
+		if s.drop() {
+			s.settleStopped()
+		}
 	}), s.priority)
 }
 
 func (s *Submission) Release() {
+	if s.c == nil || s.c.workers <= 0 {
+		return
+	}
 	s.c.engine.Add(Func(func(consumer context.Context) {
 		s.c.started.Add(-1)
 		s.c.startNext()
@@ -61,7 +74,7 @@ func (s *Submission) Release() {
 
 func (c *Cap) Submit(ctx context.Context, work Closure, priority int) *Submission {
 	s := &Submission{c: c, ctx: ctx, work: work, priority: priority, done: make(chan struct{})}
-	if c.workers <= 0 {
+	if c == nil || c.workers <= 0 {
 		s.place.Store(true)
 		close(s.done)
 		return s
@@ -116,12 +129,13 @@ func (s *Submission) settleStopped() {
 	close(s.done)
 }
 
-func (s *Submission) drop() {
+func (s *Submission) drop() bool {
 	for i, e := range s.c.pending {
 		if e.done == s.done {
 			s.c.pending = append(s.c.pending[:i], s.c.pending[i+1:]...)
 			s.c.queued.Store(int64(len(s.c.pending)))
-			return
+			return true
 		}
 	}
+	return false
 }
