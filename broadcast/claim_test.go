@@ -20,6 +20,7 @@ type seat struct {
 	listener net.Listener
 	mu       sync.Mutex
 	trs      []broadcast.Transport
+	killed   bool
 	stop     func()
 }
 
@@ -95,6 +96,7 @@ func dialRoom(t *testing.T, dir string, s *seat, codec broadcast.Encoder) {
 		s.track(tr)
 		s.claim.Subscribe(tr)
 	}
+	s.claim.Settle()
 }
 
 func seatMembers(t *testing.T, dir string, places func(int64) int, ids ...int64) []*seat {
@@ -113,12 +115,17 @@ func seatMembers(t *testing.T, dir string, places func(int64) int, ids ...int64)
 
 func (s *seat) track(tr broadcast.Transport) {
 	s.mu.Lock()
+	killed := s.killed
 	s.trs = append(s.trs, tr)
 	s.mu.Unlock()
+	if killed {
+		tr.Close()
+	}
 }
 
 func (s *seat) closeAll() {
 	s.mu.Lock()
+	s.killed = true
 	trs := append([]broadcast.Transport{}, s.trs...)
 	s.mu.Unlock()
 	for _, tr := range trs {
@@ -325,6 +332,7 @@ func TestPriorityOutranksArrival(t *testing.T) {
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2)
 	defer stops(seats)
 	a, b := seats[0], seats[1]
+	await(t, "both seated", func() bool { return seated(a) && seated(b) })
 
 	order := make(chan int64, 2)
 	b.claim.Claim(1, 30, 0, func(mint broadcast.Mint, admitted bool) {

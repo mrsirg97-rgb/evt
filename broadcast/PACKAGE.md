@@ -60,47 +60,49 @@ voice is `evt.Notice`. Imports `evt` only.
   priority travel beside the payload, so the order is agreed whatever
   the clocks say.
 - `signal.go`: the protocol's own signals — `Claim`, `Release`,
-  `Admission`, `Acknowledgement`, `Joined`, `Seated` — declared once in
-  `Protocol()`'s registry. An application declares its own operations
-  beside them and never renames these.
+  `Admission`, `Acknowledgement`, `Pinned`, `Withdrawn`, `Checkpoint`,
+  `Left`, `Joined`, `Seated` — declared once in `Protocol()`'s registry.
+  An application declares its own operations beside them and never
+  renames these.
 - `operation.go`: `Operation`, a `Message` that carries a `Mint` (tick,
-  member, nonce), a key, the parent version it branches from, the
-  version it becomes, and its priority. `NewOperation` builds one.
+  member, nonce), a key and its priority; an `Admission` also carries
+  the version it branches from and the version it becomes. The order is
+  priority first, then tick, then member, then nonce.
 - `mint.go`: identity is time plus who you are. `MachineClock` reads the
   wall clock once at the process's start and adds the monotonic time
   elapsed since — comparable across processes, never backwards within
   one. `MemberOf` hashes an identity to a 62-bit member id (the top bit
   clear keeps it positive). The `Minter` separates a member's mints
   within one tick by nonce.
-- `sequencer.go`: `Sequencer`, the total order: priority first, then
-  tick, then member, then nonce; duplicates refused by mint; staleness
-  past the window refused; a late arrival that belongs earlier takes its
-  rightful place and the log is replayed from there.
 - `guard.go`: `Guard`, per-key compare-and-swap over a version chain: a
   write is admitted only from the parent it names, and two writers
-  branching from the same version race one swap. `Rewind` serves the
-  fold's replay.
-- `guarded.go`: `GuardedSequencer`, the guarded fold: every apply
-  re-derives the admitted set from the ordered log through a fresh
-  guard, resumed from the checkpoint of ticks past the window —
-  admission is a fold, not an incremental decision, which is what makes
-  a reorg correct by construction.
-- `fold.go`: `Fold`, the room's state: the holder set per key, the
-  settled and applied admissions, the version heads. `Wants` is the
-  admission rule: a key serves as many places as its row says, a claim
-  takes a place, a strictly higher-priority claim enters beyond the
-  places (at most one), and within one priority the claim continuing the
-  conversation already served goes first. An applied admission is
-  pinned — the fold never moves it; a claim that lost its version slot
-  is refused and mints again from the advanced head. `Gone` and `Held`
-  serve a member that left.
-- `claim.go`: `Claimant`, a member that claims, releases and acts: the
-  operation is proposed to every live member, each member answers on the
-  same connection once the operation is first in its order for the key,
-  and a claim is final when every live member has acknowledged it. The
-  admission follows finality, the holder set follows the admission, and
-  the request follows the holder. A member that leaves is released for
-  by any member; the compare-and-swap makes the duplicates harmless.
+  branching from the same version race one swap. It is the chain the
+  fold pins through.
+- `fold.go`: `Fold`, the room's state on one member, in two parts. What
+  is pinned: a head and a holder set per key, moved only by `Pin` (one
+  admission per version, through the guard) or by `Adopt` (a
+  `Checkpoint` further along the same chain). What is not yet pinned:
+  the acts still waiting, kept in the order. A pinned act leaves the
+  fold, so its size is what is waiting, never the room's age. `Admits`
+  is the admission rule: a key serves as many places as its row says, a
+  claim takes a place, a strictly higher-priority claim enters beyond
+  the places (at most one), and within one priority the claim continuing
+  the conversation already served goes first. A pin that arrives ahead
+  of its version waits for it; one that arrives behind is already in the
+  state.
+- `claim.go`: `Claimant`, a member that claims, releases and acts, in
+  three rounds. The act is published and each member acknowledges it —
+  a claim only once it is first in that member's order for the key — and
+  it is final when every live member has. Its owner then proposes an
+  `Admission` at the key's head; every member votes, and the one member
+  with a better proposal for the same version refuses, so at most one
+  admission per version can gather every vote. The owner pins it, tells
+  the room (`Pinned`), and acts. A refused proposal is `Withdrawn` and
+  made again when the key moves; the act keeps its mint and its place in
+  the order. A member is gone when its connection ends: its waiting acts
+  are dropped, each survivor sends the others its checkpoints and a
+  `Left`, no member pins until it has heard every survivor, and what
+  the gone member held is released for by whoever sees it.
 - `socket.go`: the unix socket transport. `Listen` binds one socket per
   member, named by the member id and the process id; `Scan` reads the
   directory — the listing is the membership, and there is no registry
@@ -125,3 +127,19 @@ the child holds the write end and heartbeats through it.
 - The loop transport's `Recv` never blocks: it registers the callback
   and returns; the context's end is the unsubscribe.
 - The loop transport takes no registry: it never crosses a process.
+- The room's messages are handled in the order they arrive, all at the
+  claimant's own priority. An act's priority decides its place in the
+  order of admission, and its `posted` callback reaches the loop at that
+  priority; it does not let one message pass another on the way in.
+- A member mints nothing until `Settle`, which the application calls
+  once every dial has been handed to `Subscribe`, and every dialed
+  member has answered.
+- `Effects.Next` runs once for each pinned act that is neither a claim
+  nor a release, on every member, in the key's version order. A member
+  that joins later is given heads and holders, not the acts pinned
+  before it came: what those acts changed it reads from the world.
+- The fold keeps no history, so it refuses an act twice only while the
+  act is waiting. A transport must not deliver an act again after its
+  pin; the socket and the pipe do not.
+- A member that is connected and silent holds the room: every act waits
+  for its acknowledgement. Only its connection ending frees the others.

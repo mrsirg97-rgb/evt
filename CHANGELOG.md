@@ -6,30 +6,37 @@ the other half of `broadcast`: operations ordered identically on every
 member of a room with no leader, so several processes agree on who does
 what next without a router between them.
 
-- **one total order, applied identically on every member.** The order is
-  priority first, then the mint's tick, then the member, then the nonce.
-  A late operation that belongs earlier takes its rightful place (the
-  reorg); staleness past the window is refused, never reordered. The tick
-  is the machine's: the wall clock taken once at the process's start plus
-  the monotonic time elapsed since it, so ticks compare across processes
-  and never go backwards within one. `Mint` carries the three fields; the
-  member id is `MemberOf` over a hash at 62 bits.
-- **the version chain with compare-and-swap.** A guarded write carries the
-  parent version it branches from and the version it becomes; the `Guard`
-  admits it only from the head it names. Two writers branching from the
-  same version race one compare-and-swap: exactly one wins, the other is
-  refused. The `GuardedSequencer` re-derives the admitted set from the
-  ordered log on every apply — admission is a fold, not an incremental
-  decision — which is what makes a reorg correct by construction.
-- **the acknowledged claim.** `Claimant` proposes an operation to every
-  live member; each member answers on the same connection once the
-  operation is first in its order for the key. A claim is final when every
-  live member has acknowledged it; the admission follows finality, the
-  holder set follows the admission, and the request follows the holder. A
-  final admission is pinned — never reordered, never evicted; a claim that
-  lost its version slot is refused and mints again from the advanced head.
-  A member that leaves is released for by any member; the compare-and-swap
-  makes the duplicates harmless.
+- **one total order.** Priority first, then the mint's tick, then the
+  member, then the nonce. The tick is the machine's: the wall clock taken
+  once at the process's start plus the monotonic time elapsed since it,
+  so ticks compare across processes and never go backwards within one.
+  `Mint` carries the three fields; the member id is `MemberOf` over a
+  hash at 62 bits.
+- **the version chain with compare-and-swap.** An admission carries the
+  version it branches from and the version it becomes; the `Guard` admits
+  it only from the head it names, so two admissions branching from one
+  version race one swap and exactly one wins.
+- **the acknowledged claim.** `Claimant` publishes an act to every live
+  member; each acknowledges it — a claim only once it is first in that
+  member's order for the key — and it is final when every live member
+  has. The owner then proposes an admission at the key's head and every
+  member votes; the one member holding a better proposal for the same
+  version refuses, so at most one admission per version gathers every
+  vote. The owner pins it, tells the room, and acts. Nothing is acted on
+  and then reordered. A refused proposal is withdrawn and made again
+  when the key moves; the act keeps its mint, so claims at one priority
+  enter in the order they were minted.
+- **the fold is what is waiting, not what has happened.** `Fold` keeps a
+  head and a holder set per key and the acts not yet pinned. A pinned act
+  leaves it: request 5,000 costs what request 50 does. A member that
+  joins receives each member's checkpoints and what that member still
+  has waiting, never a log.
+- **a member that leaves.** Its connection ending is the leave. What it
+  had pinned stays; its waiting acts are dropped; each survivor sends the
+  others its checkpoints and no survivor pins until it has heard them
+  all, so a pin the gone member told only some of the room is known to
+  all of it or to none; what it held is released for by any member, and
+  the duplicates pin as nothing.
 - **the admission rule.** A key serves as many places as its row says; a
   claim takes a place, and a strictly higher-priority claim may enter
   beyond the places — at most one — so the fair slice of whatever it waits
@@ -40,7 +47,8 @@ what next without a router between them.
   directory — the listing is the membership, there is no registry process
   — and removes a file whose process is gone; `Dial` connects.
 - **the protocol's signals are the module's**: `Claim`, `Release`,
-  `Admission`, `Acknowledgement`, `Joined` and `Seated` are declared in
+  `Admission`, `Acknowledgement`, `Pinned`, `Withdrawn`, `Checkpoint`,
+  `Left`, `Joined` and `Seated` are declared in
   `broadcast.Protocol()`'s registry, so an application adds only its own
   operations beside them.
 

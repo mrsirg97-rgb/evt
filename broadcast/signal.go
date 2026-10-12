@@ -23,9 +23,39 @@ type Admission struct {
 
 type Acknowledgement struct {
 	evt.Mark
-	Mint     Mint
+	Mint    Mint
+	Applied bool
+}
+
+type Pinned struct {
+	evt.Mark
+	Admission Mint
+	Act       Mint
+}
+
+type Withdrawn struct {
+	evt.Mark
+	Admission Mint
+}
+
+type Left struct {
+	evt.Mark
+	Member int64
+	Answer bool
+}
+
+type Hold struct {
+	Claim    Mint
 	Priority int
-	Applied  bool
+	Talk     int64
+	Beyond   bool
+}
+
+type Checkpoint struct {
+	evt.Mark
+	Key   int64
+	Head  int64
+	Holds []Hold
 }
 
 type Joined struct {
@@ -34,6 +64,7 @@ type Joined struct {
 
 type Seated struct {
 	evt.Mark
+	Live []int64
 }
 
 func jsonCodec[T evt.Signal](r Registry, kind string) (Registry, error) {
@@ -62,6 +93,22 @@ func Protocol() (Registry, error) {
 		return nil, err
 	}
 	reg, err = jsonCodec[Acknowledgement](reg, "acknowledgement")
+	if err != nil {
+		return nil, err
+	}
+	reg, err = jsonCodec[Pinned](reg, "pinned")
+	if err != nil {
+		return nil, err
+	}
+	reg, err = jsonCodec[Withdrawn](reg, "withdrawn")
+	if err != nil {
+		return nil, err
+	}
+	reg, err = jsonCodec[Left](reg, "left")
+	if err != nil {
+		return nil, err
+	}
+	reg, err = jsonCodec[Checkpoint](reg, "checkpoint")
 	if err != nil {
 		return nil, err
 	}
