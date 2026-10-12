@@ -8,6 +8,9 @@ standard library only.
 - **a signal**: an interface for what happened, told to whoever listens;
 - **a room** (`broadcast`): members exchanging signals over a transport,
   in one process or across a pipe;
+- **an order** (`broadcast`): operations ordered identically on every
+  member with no leader — priority, then the machine's tick, then the
+  member — and a guarded key admitting one writer per version;
 - **a hand-off**: a cap on how much work starts at once.
 
 ## install

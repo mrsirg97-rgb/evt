@@ -55,7 +55,57 @@ voice is `evt.Notice`. Imports `evt` only.
   constructed (`NewJSONEncoder(reg)`). An unregistered type on `Send`
   is an error at the sender, naming the type; an unknown kind on `Recv`
   is an error the receiver reports once. No reflection over fields; the
-  codecs key on the signal's dynamic type.
+  codecs key on the signal's dynamic type. An `Operation` rides the same
+  frame: the mint, the key, the parent version, the version and the
+  priority travel beside the payload, so the order is agreed whatever
+  the clocks say.
+- `signal.go`: the protocol's own signals — `Claim`, `Release`,
+  `Admission`, `Acknowledgement`, `Joined`, `Seated` — declared once in
+  `Protocol()`'s registry. An application declares its own operations
+  beside them and never renames these.
+- `operation.go`: `Operation`, a `Message` that carries a `Mint` (tick,
+  member, nonce), a key, the parent version it branches from, the
+  version it becomes, and its priority. `NewOperation` builds one.
+- `mint.go`: identity is time plus who you are. `MachineClock` reads the
+  wall clock once at the process's start and adds the monotonic time
+  elapsed since — comparable across processes, never backwards within
+  one. `MemberOf` hashes an identity to a 62-bit member id (the top bit
+  clear keeps it positive). The `Minter` separates a member's mints
+  within one tick by nonce.
+- `sequencer.go`: `Sequencer`, the total order: priority first, then
+  tick, then member, then nonce; duplicates refused by mint; staleness
+  past the window refused; a late arrival that belongs earlier takes its
+  rightful place and the log is replayed from there.
+- `guard.go`: `Guard`, per-key compare-and-swap over a version chain: a
+  write is admitted only from the parent it names, and two writers
+  branching from the same version race one swap. `Rewind` serves the
+  fold's replay.
+- `guarded.go`: `GuardedSequencer`, the guarded fold: every apply
+  re-derives the admitted set from the ordered log through a fresh
+  guard, resumed from the checkpoint of ticks past the window —
+  admission is a fold, not an incremental decision, which is what makes
+  a reorg correct by construction.
+- `fold.go`: `Fold`, the room's state: the holder set per key, the
+  settled and applied admissions, the version heads. `Wants` is the
+  admission rule: a key serves as many places as its row says, a claim
+  takes a place, a strictly higher-priority claim enters beyond the
+  places (at most one), and within one priority the claim continuing the
+  conversation already served goes first. An applied admission is
+  pinned — the fold never moves it; a claim that lost its version slot
+  is refused and mints again from the advanced head. `Gone` and `Held`
+  serve a member that left.
+- `claim.go`: `Claimant`, a member that claims, releases and acts: the
+  operation is proposed to every live member, each member answers on the
+  same connection once the operation is first in its order for the key,
+  and a claim is final when every live member has acknowledged it. The
+  admission follows finality, the holder set follows the admission, and
+  the request follows the holder. A member that leaves is released for
+  by any member; the compare-and-swap makes the duplicates harmless.
+- `socket.go`: the unix socket transport. `Listen` binds one socket per
+  member, named by the member id and the process id; `Scan` reads the
+  directory — the listing is the membership, and there is no registry
+  process — and removes a file whose process is gone; `Dial` connects to
+  a member's socket.
 
 ## How it is consumed
 

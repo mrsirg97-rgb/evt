@@ -80,10 +80,15 @@ func Declare[T evt.Signal](r Registry, kind string, encode func(T) ([]byte, erro
 }
 
 type jsonMessage struct {
-	Origin  int64           `json:"origin"`
-	Ok      bool            `json:"ok"`
-	Kind    string          `json:"kind,omitempty"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Origin   int64           `json:"origin"`
+	Ok       bool            `json:"ok"`
+	Kind     string          `json:"kind,omitempty"`
+	Payload  json.RawMessage `json:"payload,omitempty"`
+	Mint     *Mint           `json:"mint,omitempty"`
+	Key      int64           `json:"key,omitempty"`
+	Parent   int64           `json:"parent,omitempty"`
+	Version  int64           `json:"version,omitempty"`
+	Priority int             `json:"priority,omitempty"`
 }
 
 func NewJSONEncoder(reg Registry) Encoder {
@@ -99,6 +104,11 @@ type jsonEncoder struct {
 
 func (e *jsonEncoder) Encode(message Message) ([]byte, error) {
 	frame := jsonMessage{Origin: message.Origin(), Ok: message.Ok()}
+	if op, ok := message.(Operation); ok {
+		mint := op.Mint()
+		frame.Mint = &mint
+		frame.Key, frame.Parent, frame.Version, frame.Priority = op.Key(), op.Parent(), op.Version(), op.Priority()
+	}
 	if ev := message.Signal(); ev != nil {
 		c, ok := e.reg.byType(reflect.TypeOf(ev))
 		if !ok {
@@ -118,16 +128,22 @@ func (e *jsonEncoder) Decode(encoded []byte) (Message, error) {
 	if err := json.Unmarshal(encoded, &frame); err != nil {
 		return nil, err
 	}
+	var signal evt.Signal
 	if frame.Kind == "" {
-		return NewMessage(frame.Origin, frame.Ok), nil
+		signal = nil
+	} else {
+		c, ok := e.reg.byKind(frame.Kind)
+		if !ok {
+			return nil, fmt.Errorf("broadcast: unknown kind %q", frame.Kind)
+		}
+		ev, err := c.decode(frame.Payload)
+		if err != nil {
+			return nil, err
+		}
+		signal = ev
 	}
-	c, ok := e.reg.byKind(frame.Kind)
-	if !ok {
-		return nil, fmt.Errorf("broadcast: unknown kind %q", frame.Kind)
+	if frame.Mint != nil {
+		return NewOperation(*frame.Mint, frame.Priority, frame.Key, frame.Parent, frame.Version, signal), nil
 	}
-	ev, err := c.decode(frame.Payload)
-	if err != nil {
-		return nil, err
-	}
-	return NewMessage(frame.Origin, frame.Ok, ev), nil
+	return NewMessage(frame.Origin, frame.Ok, signal), nil
 }
