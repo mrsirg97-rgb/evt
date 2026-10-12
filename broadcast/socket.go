@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -30,8 +32,45 @@ func (l *listener) Addr() net.Addr {
 	return l.inner.Addr()
 }
 
+const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func EncodeID(id int64) string {
+	out := make([]byte, 0, 11)
+	v := uint64(id)
+	for {
+		out = append(out, alphabet[v%62])
+		v /= 62
+		if v == 0 {
+			break
+		}
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return string(out)
+}
+
+func DecodeID(s string) (int64, error) {
+	var v uint64
+	for _, c := range s {
+		var d uint64
+		switch {
+		case c >= '0' && c <= '9':
+			d = uint64(c - '0')
+		case c >= 'a' && c <= 'z':
+			d = uint64(c-'a') + 10
+		case c >= 'A' && c <= 'Z':
+			d = uint64(c-'A') + 36
+		default:
+			return 0, fmt.Errorf("broadcast: %q is not a member id", s)
+		}
+		v = v*62 + d
+	}
+	return int64(v), nil
+}
+
 func Listen(dir string, id int64) (net.Listener, error) {
-	path := filepath.Join(dir, fmt.Sprintf("%d-%d.sock", id, os.Getpid()))
+	path := filepath.Join(dir, fmt.Sprintf("%s-%d.sock", EncodeID(id), os.Getpid()))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -69,8 +108,17 @@ func Scan(dir string) ([]int64, error) {
 }
 
 func socketFile(name string) (int64, int64, bool) {
-	var id, pid int64
-	if _, err := fmt.Sscanf(name, "%d-%d.sock", &id, &pid); err != nil {
+	name = strings.TrimSuffix(name, ".sock")
+	dash := strings.LastIndex(name, "-")
+	if dash < 0 {
+		return 0, 0, false
+	}
+	id, err := DecodeID(name[:dash])
+	if err != nil {
+		return 0, 0, false
+	}
+	pid, err := strconv.ParseInt(name[dash+1:], 10, 64)
+	if err != nil {
 		return 0, 0, false
 	}
 	return id, pid, true
