@@ -3,6 +3,7 @@ package broadcast_test
 import (
 	"context"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,16 @@ type seat struct {
 	mu       sync.Mutex
 	trs      []broadcast.Transport
 	stop     func()
+}
+
+func shortTemp(t *testing.T) string {
+	t.Helper()
+	d, err := os.MkdirTemp("", "evt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(d) })
+	return d
 }
 
 func wireCodec(t *testing.T) broadcast.Encoder {
@@ -239,7 +250,7 @@ func agree(t *testing.T, seats []*seat, keys ...int64) {
 }
 
 func TestSevenPeersClaimContendedKeysAndALateJoinerAgrees(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2, 3, 4, 5, 6, 7)
 	defer stops(seats)
 
@@ -258,7 +269,7 @@ func TestSevenPeersClaimContendedKeysAndALateJoinerAgrees(t *testing.T) {
 }
 
 func TestTwoInstancesStartingAtTheSameInstantEndInOneRoom(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2)
 	defer stops(seats)
 	await(t, "one room", func() bool {
@@ -268,7 +279,7 @@ func TestTwoInstancesStartingAtTheSameInstantEndInOneRoom(t *testing.T) {
 }
 
 func TestAClaimIsNeverActedOnBeforeItIsFinal(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2)
 	defer stops(seats)
 	a, b := seats[0], seats[1]
@@ -288,7 +299,7 @@ func TestAClaimIsNeverActedOnBeforeItIsFinal(t *testing.T) {
 }
 
 func TestTheLoopCanBlockWhileTheRoomAnswers(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2)
 	defer stops(seats)
 	a, b := seats[0], seats[1]
@@ -310,7 +321,7 @@ func TestTheLoopCanBlockWhileTheRoomAnswers(t *testing.T) {
 }
 
 func TestPriorityOutranksArrival(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2)
 	defer stops(seats)
 	a, b := seats[0], seats[1]
@@ -335,7 +346,7 @@ func TestPriorityOutranksArrival(t *testing.T) {
 }
 
 func TestHighClaimOnAFullKeyEntersBeyondThePlaces(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 1 }, 1, 2, 3)
 	defer stops(seats)
 	a, b, c := seats[0], seats[1], seats[2]
@@ -384,7 +395,7 @@ func TestHighClaimOnAFullKeyEntersBeyondThePlaces(t *testing.T) {
 }
 
 func TestShuffledConflictingClaimsEndWithOneHolder(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 1 }, 1, 2, 3)
 	defer stops(seats)
 
@@ -413,7 +424,7 @@ func TestShuffledConflictingClaimsEndWithOneHolder(t *testing.T) {
 }
 
 func TestAMemberThatLeavesMidClaimDoesNotHoldTheOthers(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2, 3)
 	defer stops(seats)
 	a, c := seats[0], seats[2]
@@ -433,7 +444,7 @@ func TestAMemberThatLeavesMidClaimDoesNotHoldTheOthers(t *testing.T) {
 }
 
 func TestAMemberThatJoinsLateAgreesWithTheRest(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2)
 	defer stops(seats)
 	codec := wireCodec(t)
@@ -453,7 +464,7 @@ func TestAMemberThatJoinsLateAgreesWithTheRest(t *testing.T) {
 }
 
 func TestAClaimRacingAJoinNeverYieldsTwoHolders(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 1 }, 1, 2)
 	defer stops(seats)
 	codec := wireCodec(t)
@@ -477,7 +488,7 @@ func TestAClaimRacingAJoinNeverYieldsTwoHolders(t *testing.T) {
 }
 
 func TestTheFoldNeverHoldsMoreThanThePlacesAndItsOneEntry(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	seats := seatMembers(t, dir, func(int64) int { return 2 }, 1, 2, 3, 4)
 	defer stops(seats)
 

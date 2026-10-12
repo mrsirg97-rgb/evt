@@ -11,7 +11,7 @@ import (
 
 func socketPair(t *testing.T) (broadcast.Transport, broadcast.Transport, func()) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	listener, err := broadcast.Listen(dir, 9)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestTwoTransportsOverAUnixSocketExchangeFrames(t *testing.T) {
 }
 
 func TestABadFrameClosesTheUnixTransport(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	listener, err := broadcast.Listen(dir, 9)
 	if err != nil {
 		t.Fatal(err)
