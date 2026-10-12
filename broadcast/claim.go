@@ -23,6 +23,7 @@ type Claimant interface {
 	Subscribe(transport Transport)
 	Accept(transport Transport)
 	Seated() bool
+	Settle()
 	Claim(key int64, priority int, talk int64, posted func(mint Mint, admitted bool))
 	Release(claim Mint, priority int)
 	Act(payload evt.Signal, key int64, priority int, posted func(admitted bool))
@@ -179,6 +180,8 @@ func (c *claimant) settle() {
 }
 
 func (c *claimant) Seated() bool { return c.ready }
+
+func (c *claimant) Settle() { c.settle() }
 
 func (c *claimant) Claim(key int64, priority int, talk int64, posted func(mint Mint, admitted bool)) {
 	c.post(c.voice, func() {
