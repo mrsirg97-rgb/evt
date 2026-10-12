@@ -217,6 +217,7 @@ func (c *claimant) Release(claim Mint, priority int) {
 		op := NewOperation(c.minter.Mint(), priority, key, parent, parent+1, Release{Claim: claim})
 		a := &ask{op: op, acked: make(map[int64]bool)}
 		c.pending[op.Mint()] = a
+		c.mark(a)
 		c.publish(op)
 		_ = c.fold.Post(op)
 		c.reevaluate()
@@ -228,9 +229,16 @@ func (c *claimant) mint(key int64, priority int, payload evt.Signal, posted func
 	op := NewOperation(c.minter.Mint(), priority, key, parent, parent+1, payload)
 	a := &ask{op: op, acked: make(map[int64]bool), posted: posted}
 	c.pending[op.Mint()] = a
+	c.mark(a)
 	c.publish(op)
 	_ = c.fold.Post(op)
 	c.reevaluate()
+}
+
+func (c *claimant) mark(a *ask) {
+	if !a.final && c.finality(a) {
+		a.final = true
+	}
 }
 
 func (c *claimant) publish(op Operation) {
@@ -416,6 +424,7 @@ func (c *claimant) remint(a *ask) {
 	rebuilt := NewOperation(c.minter.Mint(), a.op.Priority(), a.op.Key(), parent, parent+1, a.op.Signal())
 	next := &ask{op: rebuilt, acked: make(map[int64]bool), posted: a.posted}
 	c.pending[rebuilt.Mint()] = next
+	c.mark(next)
 	c.publish(rebuilt)
 	_ = c.fold.Post(rebuilt)
 }
@@ -432,9 +441,7 @@ func (c *claimant) left(peer int64) {
 		c.told(evt.Notice{Source: "room", Text: "member left", Level: evt.LevelInfo})
 	}
 	for _, a := range c.pending {
-		if !a.final && c.finality(a) {
-			a.final = true
-		}
+		c.mark(a)
 	}
 	c.reevaluate()
 }
@@ -445,6 +452,7 @@ func (c *claimant) releaseFor(peer int64) {
 		op := NewOperation(c.minter.Mint(), act.Priority(), act.Key(), parent, parent+1, Release{Claim: act.Mint()})
 		a := &ask{op: op, acked: make(map[int64]bool)}
 		c.pending[op.Mint()] = a
+		c.mark(a)
 		c.publish(op)
 		_ = c.fold.Post(op)
 	}
