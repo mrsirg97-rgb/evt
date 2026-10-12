@@ -181,7 +181,7 @@ func (c *claimant) settle() {
 
 func (c *claimant) Seated() bool { return c.ready }
 
-func (c *claimant) Settle() { c.settle() }
+func (c *claimant) Settle() { c.post(c.voice, func() { c.settle() }) }
 
 func (c *claimant) Claim(key int64, priority int, talk int64, posted func(mint Mint, admitted bool)) {
 	c.post(c.voice, func() {
