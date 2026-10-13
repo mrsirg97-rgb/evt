@@ -1,4 +1,59 @@
 # Changelog
+## [0.4.0]: the mesh half
+
+0.3.0's ordering is one process's room: every member is a transport in
+the same process, the wire is a pipe or a socket, and the fold pins
+through a guarded version chain. 0.4.0 adds the inter-system half
+beside it, unchanged: several machines agreeing on one order with no
+router and no leader, where finality is a freshness horizon instead of
+a quorum.
+
+- **the clock is the chain.** `vdf_clock.go`: the VDF behind `Clock`,
+  a chain of repeated squarings whose every tick carries a Wesolowski
+  proof. The chain is deterministic from a seed derived by hashing the
+  room's name (`GenesisSeed`), so every member that computes tick n
+  produces the same output byte for byte and no member's clock can
+  drift from another's without a proof refusing it. A member keeps a
+  frontier — the outputs it has verified — and advances it either by
+  computing the next tick or by recording a proof that verifies against
+  the tick before it; the mesh's current tick is the top of that
+  frontier, so a member mints at the fastest peer's pace by verifying
+  (constant work per tick) rather than computing. The proof rides the
+  act and the tick announcement; an unverified tick is refused, never
+  trusted. A joiner trusts one frontier entry — the tailnet — and
+  verifies every tick after it.
+- **one order, no quorum.** `sequencer.go`: acts ordered by priority,
+  then the mint, with a horizon window; an act older than the horizon
+  window is refused (`ErrStaleTick`) and never folded, an act that
+  arrives late is spliced into its rightful place by unwinding the tail
+  and reapplying it, and the same acts in different arrival orders
+  produce the same order on every member.
+- **the mesh's state.** `mesh_state.go`: who holds what, per machine —
+  a claim adds a hold, a release (which carries the claim it releases)
+  removes it. Both directions are undoable, which is what the reorg
+  path walks.
+- **the log.** `wal.go`: the acts a member carries, append-deduped,
+  replayable past a tick watermark and compactable below the horizon
+  window. It is what a peer pulls and what gossip summarizes.
+- **the transport.** `net_transport.go`: TCP, length-prefixed frames,
+  one wire, three verbs — a push carries acts and is acked, a pull
+  carries a watermark and returns a log, a gossip carries a summary and
+  returns the difference. Acks are receipts, not votes.
+- **the summaries.** `gossip.go`: a summary hashes a fixed number of
+  buckets over each act's mint; two summaries that differ by bucket
+  yield the difference, so two members reconcile by exchanging one
+  summary and pulling the buckets that differ.
+- **the member.** `mesh.go`: `Mesh`, the machine's one mesh member,
+  constructed whole (`NewMesh(id, MeshConfig)`) with the clock,
+  transport, sequencer, state and log built inside it. `Post` mints a
+  claim at the current tick and fans it out; `Release` mints a release
+  naming the claim; the fold's holders and the live machines are read
+  on the member's engine. An act is acted on once its tick is past the
+  freshness horizon in the member's view, not before; acts that arrive
+  early wait. A door whose dial goes unanswered for the configured
+  round count is gone, and what it holds is released by whoever saw it
+  hold.
+
 ## [0.3.0]: the ordering primitive
 
 One process ordering its own work was the module's whole world. 0.3.0 adds

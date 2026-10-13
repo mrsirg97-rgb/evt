@@ -108,6 +108,64 @@ voice is `evt.Notice`. Imports `evt` only.
   directory — the listing is the membership, and there is no registry
   process — and removes a file whose process is gone; `Dial` connects to
   a member's socket.
+- `act.go`: the mesh's wire. An `Act` is a claim or a release between
+  machines: its mint, the key and the priority, the machine that holds
+  or held, the tick's stamp (the chain's output and its proof) and, for
+  a release, the claim it releases. A `Tick` is a chain announcement:
+  the tick's index, output and proof, no act attached. Both are declared
+  once in `MeshCodec()`'s registry; the frame is the same one line of
+  JSON the loop and the pipe speak.
+- `vdf/`: the delay itself. Repeated squaring over a known prime with a
+  Wesolowski proof whose challenge prime is derived from the statement,
+  so a proof binds to this exact computation and verification is
+  constant work however long the delay runs. Stdlib only.
+- `vdf_clock.go`: the mesh's clock, the chain behind `Clock`. The seed
+  is the room's name hashed (`GenesisSeed`); the prime is a boring,
+  audited constant (`RFC3526Prime1536`, or `RSA2048` where the group
+  order must stay unknown) and the iteration count is the construction
+  value. Every member that computes tick n produces the same output, so
+  the frontier — the outputs a member has verified, by computing or by
+  recording a proof — is the mesh's shared clock: its top is the tick a
+  member mints at, a proof that does not verify is refused and never
+  advances it, and a joiner trusts the first entry a peer hands it and
+  verifies every tick after. The chain is computed off the member's
+  engine: a producer goroutine computes ticks and posts each finished
+  one, so nothing on the engine waits on arithmetic.
+- `sequencer.go`: `Sequencer` and `State`. Acts are ordered by priority,
+  then the mint, the same order as an operation's; the horizon is a
+  window over the ticks, an act older than the window is refused and
+  never folded, and an act that arrives late is put in its rightful
+  place by undoing the tail and reapplying it — both directions through
+  the state. No mutex crosses: the one consumer is the member's engine.
+- `mesh_state.go`: the mesh's fold: who holds what, per machine. A
+  claim adds a hold keyed by its mint; a release removes the hold of
+  the claim it carries. Both are undoable, which is what the reorg
+  walks. A key may be held by several machines; the home machine's room
+  decides between their claims.
+- `wal.go`: `WAL`, the log a member carries: append-deduped, replayable
+  past a tick watermark, compactable below the horizon window, and the
+  source of the mints a summary hashes.
+- `gossip.go`: the summaries. A fixed number of buckets, each bucket
+  hashed over the mints that land in it; two members reconcile by
+  exchanging one summary and sending the acts in the buckets that
+  differ, bounded per round, the rest next round.
+- `net_transport.go`: `NetTransport`, the TCP transport. One wire,
+  three verbs: a push carries acts and is acked, a pull carries a
+  watermark and returns a log, a gossip carries a summary and returns
+  the difference. Length-prefixed frames with count and size bounds;
+  connections are pooled per peer; an ack is a receipt, not a vote.
+- `mesh.go`: `Mesh`, the machine's one mesh member, constructed whole
+  (`NewMesh(id, MeshConfig)`) with the clock, transport, sequencer,
+  state and log built inside it, at the priorities the config names.
+  `Post` mints a claim at the current tick, folds it and fans it out;
+  `Release` mints a release naming the claim it releases. The fold's
+  holders, the live machines and the horizon are read on the member's
+  engine; the config's `Told` is called on the engine for each act once
+  its tick is past the freshness horizon in this member's view — an act
+  that arrives early waits, and is never acted on before. A door whose
+  dial goes unanswered for the configured round count is gone: its
+  entries leave the fold and what it held is released for by whoever
+  saw it hold, as acts like any other.
 
 ## How it is consumed
 
