@@ -26,7 +26,7 @@ func freePorts(t *testing.T, count int) []string {
 func TestMeshConvergesOverTheWire(t *testing.T) {
 	const peers = 3
 	const rounds = 4
-	const iterations = int64(5000)
+	const iterations = meshTestIterations
 
 	addrs := freePorts(t, peers)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -57,7 +57,7 @@ func TestMeshConvergesOverTheWire(t *testing.T) {
 	for i := range meshes {
 		go meshes[i].Start(ctx)
 	}
-	time.Sleep(200 * time.Millisecond)
+	awaitTicking(t, meshes)
 
 	for round := 0; round < rounds; round++ {
 		var wg sync.WaitGroup
@@ -65,13 +65,15 @@ func TestMeshConvergesOverTheWire(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				meshes[i].Post(int64(100+i), 20)
+				if _, ok := meshes[i].Post(int64(100+i), 20); !ok {
+					t.Errorf("member %d must be alive to post", i)
+				}
 			}(i)
 		}
 		wg.Wait()
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(meshTestPatience)
 	for time.Now().Before(deadline) {
 		if converged(t, meshes) {
 			break

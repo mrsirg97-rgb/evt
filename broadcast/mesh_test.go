@@ -5,6 +5,35 @@ import (
 	"time"
 )
 
+const (
+	meshTestIterations = int64(40000)
+	meshTestPatience   = 20 * time.Second
+)
+
+func awaitTicking(t *testing.T, meshes []Mesh) {
+	t.Helper()
+	await(t, "every member's clock must tick", func() bool {
+		for i := range meshes {
+			if meshes[i].Horizon() == 0 {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+func await(t *testing.T, claim string, met func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(meshTestPatience)
+	for time.Now().Before(deadline) {
+		if met() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(claim)
+}
+
 func meshRoom(t *testing.T, count int, told func(i int, act Act), peersOf func(i int) []int) []Mesh {
 	t.Helper()
 	addrs := freePorts(t, count)
@@ -25,7 +54,7 @@ func meshRoom(t *testing.T, count int, told func(i int, act Act), peersOf func(i
 			Addr:       addrs[i],
 			Peers:      peersAddrs,
 			Prime:      RFC3526Prime1536(),
-			Iterations: 5000,
+			Iterations: meshTestIterations,
 			Timeout:    time.Second,
 			Idle:       time.Second,
 			Window:     4,
@@ -48,7 +77,7 @@ func startAll(t *testing.T, meshes []Mesh) {
 			meshes[i].Stop()
 		}
 	})
-	time.Sleep(200 * time.Millisecond)
+	awaitTicking(t, meshes)
 }
 
 func TestSilentDoorReleasesItsHolds(t *testing.T) {
@@ -58,24 +87,13 @@ func TestSilentDoorReleasesItsHolds(t *testing.T) {
 	if _, ok := meshes[0].Post(7, 20); !ok {
 		t.Fatal("the member must be alive to post")
 	}
-	time.Sleep(100 * time.Millisecond)
-	if len(meshes[1].Holders(7)) == 0 || len(meshes[2].Holders(7)) == 0 {
-		t.Fatalf("the claim must cross before the silence: %d %d",
-			len(meshes[1].Holders(7)), len(meshes[2].Holders(7)))
-	}
+	await(t, "the claim must cross before the silence", func() bool {
+		return len(meshes[1].Holders(7)) == 1 && len(meshes[2].Holders(7)) == 1
+	})
 	meshes[0].Stop()
-
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(meshes[1].Holders(7)) == 0 && len(meshes[2].Holders(7)) == 0 {
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	if len(meshes[1].Holders(7)) != 0 || len(meshes[2].Holders(7)) != 0 {
-		t.Fatalf("a silent door's holds must be released: %d %d",
-			len(meshes[1].Holders(7)), len(meshes[2].Holders(7)))
-	}
+	await(t, "a silent door's holds must be released", func() bool {
+		return len(meshes[1].Holders(7)) == 0 && len(meshes[2].Holders(7)) == 0
+	})
 }
 
 func TestToldWaitsPastTheHorizon(t *testing.T) {
@@ -96,7 +114,7 @@ func TestToldWaitsPastTheHorizon(t *testing.T) {
 		if act.Mint != claim.Mint {
 			t.Fatalf("the told carried mint %v, want %v", act.Mint, claim.Mint)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(meshTestPatience):
 		t.Fatal("the member's told never fired past the horizon")
 	}
 }
@@ -147,64 +165,40 @@ func TestALateJoinerConverges(t *testing.T) {
 	})
 	go meshes[0].Start(ctx)
 	go meshes[1].Start(ctx)
-	time.Sleep(time.Second)
+	await(t, "the mesh must run well ahead of the joiner", func() bool {
+		return meshes[0].Horizon() > 40 && meshes[1].Horizon() > 40
+	})
 	go meshes[2].Start(ctx)
+	await(t, "the joiner must reach the mesh's tick", func() bool {
+		at := meshes[2].Horizon()
+		return at > 40 && meshes[0].Horizon()-at <= 2
+	})
 
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && meshes[0].Horizon()-meshes[2].Horizon() > 4 {
-		time.Sleep(25 * time.Millisecond)
-	}
-	if behind := meshes[0].Horizon() - meshes[2].Horizon(); behind > 4 {
-		t.Fatalf("the joiner must reach the mesh's tick, behind by %d", behind)
-	}
-
-	var mine, theirs Act
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if act, ok := meshes[2].Post(7, 20); ok {
-			mine = act
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
+	var mine Act
+	await(t, "the joiner must be able to post", func() bool {
+		act, ok := meshes[2].Post(7, 20)
+		mine = act
+		return ok
+	})
 	theirs, ok := meshes[0].Post(8, 20)
 	if !ok {
 		t.Fatal("the member must be alive to post")
 	}
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(meshes[0].Holders(7)) == 1 && len(meshes[2].Holders(8)) == 1 {
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	if held := meshes[0].Holders(7); len(held) != 1 || held[0].Mint != mine.Mint {
-		t.Fatalf("the joiner's claim must reach the mesh, holders=%d", len(held))
-	}
-	if held := meshes[2].Holders(8); len(held) != 1 || held[0].Mint != theirs.Mint {
-		t.Fatalf("the mesh's claim must reach the joiner, holders=%d", len(held))
-	}
+	await(t, "a claim must cross both ways between the joiner and the mesh", func() bool {
+		a, b := meshes[0].Holders(7), meshes[2].Holders(8)
+		return len(a) == 1 && a[0].Mint == mine.Mint && len(b) == 1 && b[0].Mint == theirs.Mint
+	})
 }
 
 func TestAPostBeforeTheFirstTickIsRefused(t *testing.T) {
-	meshes := meshRoom(t, 1, nil, fullMesh(1))
-	t.Cleanup(meshes[0].Stop)
-	posted := make(chan bool, 1)
-	go func() {
-		_, ok := meshes[0].Post(7, 20)
-		posted <- ok
-	}()
-	time.Sleep(50 * time.Millisecond)
-	go meshes[0].Start(t.Context())
-	select {
-	case ok := <-posted:
-		if ok {
-			t.Fatal("a post with no tick under it must be refused, not reported held")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("the post never answered")
+	m := meshRoom(t, 1, nil, fullMesh(1))[0].(*mesh)
+	t.Cleanup(m.Stop)
+	go m.engine.Start(m.ctx)
+
+	if _, ok := m.Post(7, 20); ok {
+		t.Fatal("a post with no tick under it must be refused, not reported held")
 	}
-	if held := len(meshes[0].Holders(7)); held != 0 {
+	if held := len(m.Holders(7)); held != 0 {
 		t.Fatalf("a refused post must not hold, holders=%d", held)
 	}
 }
@@ -218,13 +212,14 @@ func TestTheLogStaysInsideTheWindow(t *testing.T) {
 			t.Fatal("the member must be alive to post")
 		}
 		meshes[0].Release(claim)
-		time.Sleep(time.Millisecond)
 	}
-	time.Sleep(200 * time.Millisecond)
 	m := meshes[0].(*mesh)
-	var logged, ordered int
-	m.ask(func() { logged, ordered = len(m.wal.Mints()), len(m.seq.Order()) })
-	if logged != 0 || ordered != 0 {
-		t.Fatalf("acts below the window must leave the log and the order, log=%d order=%d", logged, ordered)
+	await(t, "acts below the window must leave the log and the order", func() bool {
+		var logged, ordered int
+		m.ask(func() { logged, ordered = len(m.wal.Mints()), len(m.seq.Order()) })
+		return logged == 0 && ordered == 0
+	})
+	if held := len(meshes[0].Holders(7)); held != 0 {
+		t.Fatalf("every claim was released, holders=%d", held)
 	}
 }
