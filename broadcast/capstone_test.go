@@ -100,17 +100,22 @@ func TestMeshConvergesOverTheWire(t *testing.T) {
 
 func converged(t *testing.T, meshes []Mesh) bool {
 	t.Helper()
-	reference := meshes[0].Holders(100)
-	for i := 1; i < len(meshes); i++ {
-		other := meshes[i].Holders(100)
-		if len(other) != len(reference) {
+	for key := int64(100); key < int64(100+len(meshes)); key++ {
+		reference := meshes[0].Holders(key)
+		if len(reference) == 0 {
 			return false
 		}
-		for j := range reference {
-			if other[j].Mint != reference[j].Mint {
+		for i := 1; i < len(meshes); i++ {
+			other := meshes[i].Holders(key)
+			if len(other) != len(reference) {
 				return false
+			}
+			for j := range reference {
+				if other[j].Mint != reference[j].Mint {
+					return false
+				}
 			}
 		}
 	}
-	return len(reference) > 0
+	return true
 }

@@ -276,8 +276,8 @@ func (m *mesh) fanout(act Act) {
 }
 
 func (m *mesh) sync(since int64) []Message {
-	out := []Message{}
-	m.ask(func() {
+	var out []Message
+	if !m.ask(func() {
 		out = append(out, NewMessage(m.id, true))
 		for _, tick := range m.clock.Entries() {
 			out = append(out, NewMessage(m.id, true, tick))
@@ -285,13 +285,15 @@ func (m *mesh) sync(since int64) []Message {
 		for _, act := range m.wal.Replay(since) {
 			out = append(out, NewMessage(m.id, true, act))
 		}
-	})
+	}) {
+		return nil
+	}
 	return out
 }
 
 func (m *mesh) serveGossip(theirSummary map[int]uint64) []Message {
-	out := []Message{}
-	m.ask(func() {
+	var out []Message
+	if !m.ask(func() {
 		out = append(out, NewMessage(m.id, true))
 		for _, tick := range m.clock.Entries() {
 			out = append(out, NewMessage(m.id, true, tick))
@@ -310,7 +312,9 @@ func (m *mesh) serveGossip(theirSummary map[int]uint64) []Message {
 				}
 			}
 		}
-	})
+	}) {
+		return nil
+	}
 	return out
 }
 
