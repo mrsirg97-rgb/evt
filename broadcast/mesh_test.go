@@ -34,7 +34,16 @@ func await(t *testing.T, claim string, met func() bool) {
 	t.Fatal(claim)
 }
 
+func vdfTestClock() MeshClock {
+	return NewVDFClock(RFC3526Prime1536(), meshTestIterations, GenesisSeed("mesh-room"), 4, 30)
+}
+
 func meshRoom(t *testing.T, count int, told func(i int, act Act), peersOf func(i int) []int) []Mesh {
+	t.Helper()
+	return meshRoomOn(t, vdfTestClock, count, told, peersOf)
+}
+
+func meshRoomOn(t *testing.T, clock func() MeshClock, count int, told func(i int, act Act), peersOf func(i int) []int) []Mesh {
 	t.Helper()
 	addrs := freePorts(t, count)
 	meshes := make([]Mesh, count)
@@ -49,18 +58,16 @@ func meshRoom(t *testing.T, count int, told func(i int, act Act), peersOf func(i
 			toldFn = func(act Act) { told(index, act) }
 		}
 		meshes[i] = NewMesh(int64(i)+100, MeshConfig{
-			Room:       "mesh-room",
-			Machine:    "machine-" + string(rune('a'+i)),
-			Addr:       addrs[i],
-			Peers:      peersAddrs,
-			Prime:      RFC3526Prime1536(),
-			Iterations: meshTestIterations,
-			Timeout:    time.Second,
-			Idle:       time.Second,
-			Window:     4,
-			Rounds:     3,
-			Voice:      30,
-			Told:       toldFn,
+			Machine: "machine-" + string(rune('a'+i)),
+			Addr:    addrs[i],
+			Peers:   peersAddrs,
+			Clock:   clock(),
+			Timeout: time.Second,
+			Idle:    time.Second,
+			Window:  4,
+			Rounds:  3,
+			Voice:   30,
+			Told:    toldFn,
 		})
 	}
 	return meshes

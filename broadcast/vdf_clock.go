@@ -10,7 +10,7 @@ import (
 	vdf "github.com/mrsirg97-rgb/evt/broadcast/vdf"
 )
 
-type VDFClock interface {
+type MeshClock interface {
 	evt.Clock
 	Start(ctx context.Context, engine evt.Engine, onTick func(index uint64))
 	Proof() *vdf.VDFProof
@@ -18,6 +18,10 @@ type VDFClock interface {
 	Entries() []Tick
 	Record(index uint64, output *big.Int, proof *vdf.VDFProof) bool
 	Trust(index uint64, output *big.Int, proof *vdf.VDFProof) bool
+}
+
+type VDFClock interface {
+	MeshClock
 	Verify(output, input *big.Int, proof *vdf.VDFProof) bool
 }
 

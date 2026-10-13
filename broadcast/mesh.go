@@ -2,7 +2,6 @@ package broadcast
 
 import (
 	"context"
-	"math/big"
 	"sort"
 	"time"
 
@@ -10,18 +9,16 @@ import (
 )
 
 type MeshConfig struct {
-	Room       string
-	Machine    string
-	Addr       string
-	Peers      []string
-	Prime      *big.Int
-	Iterations int64
-	Timeout    time.Duration
-	Idle       time.Duration
-	Window     int64
-	Rounds     int
-	Voice      int
-	Told       func(Act)
+	Machine string
+	Addr    string
+	Peers   []string
+	Clock   MeshClock
+	Timeout time.Duration
+	Idle    time.Duration
+	Window  int64
+	Rounds  int
+	Voice   int
+	Told    func(Act)
 }
 
 type Mesh interface {
@@ -37,7 +34,7 @@ type Mesh interface {
 type mesh struct {
 	id        int64
 	cfg       MeshConfig
-	clock     VDFClock
+	clock     MeshClock
 	transport NetTransport
 	seq       Sequencer
 	state     *meshState
@@ -55,8 +52,10 @@ type mesh struct {
 }
 
 func NewMesh(id int64, cfg MeshConfig) Mesh {
-	seed := GenesisSeed(cfg.Room)
-	clock := NewVDFClock(cfg.Prime, cfg.Iterations, seed, cfg.Window, cfg.Voice)
+	if cfg.Clock == nil {
+		panic("broadcast: a mesh needs its clock")
+	}
+	clock := cfg.Clock
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &mesh{
 		id:        id,
