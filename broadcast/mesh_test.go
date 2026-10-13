@@ -84,7 +84,7 @@ func TestSilentDoorReleasesItsHolds(t *testing.T) {
 	meshes := meshRoom(t, 3, nil, fullMesh(3))
 	startAll(t, meshes)
 
-	if _, ok := meshes[0].Post(7, 20); !ok {
+	if _, ok := meshes[0].Post(7, 20, Mint{}); !ok {
 		t.Fatal("the member must be alive to post")
 	}
 	await(t, "the claim must cross before the silence", func() bool {
@@ -105,7 +105,7 @@ func TestToldWaitsPastTheHorizon(t *testing.T) {
 	}, fullMesh(2))
 	startAll(t, meshes)
 
-	claim, ok := meshes[0].Post(7, 20)
+	claim, ok := meshes[0].Post(7, 20, Mint{})
 	if !ok {
 		t.Fatal("the member must be alive to post")
 	}
@@ -146,7 +146,7 @@ func TestPeerCutOffFromTheHomeMachineIsNeverServed(t *testing.T) {
 	meshes[1].Stop()
 	time.Sleep(100 * time.Millisecond)
 
-	if _, ok := meshes[0].Post(7, 20); !ok {
+	if _, ok := meshes[0].Post(7, 20, Mint{}); !ok {
 		t.Fatal("the member must be alive to post")
 	}
 	time.Sleep(500 * time.Millisecond)
@@ -176,11 +176,11 @@ func TestALateJoinerConverges(t *testing.T) {
 
 	var mine Act
 	await(t, "the joiner must be able to post", func() bool {
-		act, ok := meshes[2].Post(7, 20)
+		act, ok := meshes[2].Post(7, 20, Mint{})
 		mine = act
 		return ok
 	})
-	theirs, ok := meshes[0].Post(8, 20)
+	theirs, ok := meshes[0].Post(8, 20, Mint{})
 	if !ok {
 		t.Fatal("the member must be alive to post")
 	}
@@ -195,7 +195,7 @@ func TestAPostBeforeTheFirstTickIsRefused(t *testing.T) {
 	t.Cleanup(m.Stop)
 	go m.engine.Start(m.ctx)
 
-	if _, ok := m.Post(7, 20); ok {
+	if _, ok := m.Post(7, 20, Mint{}); ok {
 		t.Fatal("a post with no tick under it must be refused, not reported held")
 	}
 	if held := len(m.Holders(7)); held != 0 {
@@ -207,7 +207,7 @@ func TestTheLogStaysInsideTheWindow(t *testing.T) {
 	meshes := meshRoom(t, 1, nil, fullMesh(1))
 	startAll(t, meshes)
 	for i := 0; i < 200; i++ {
-		claim, ok := meshes[0].Post(7, 20)
+		claim, ok := meshes[0].Post(7, 20, Mint{})
 		if !ok {
 			t.Fatal("the member must be alive to post")
 		}

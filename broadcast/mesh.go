@@ -27,7 +27,7 @@ type MeshConfig struct {
 type Mesh interface {
 	Start(ctx context.Context) error
 	Stop()
-	Post(key int64, priority int) (Act, bool)
+	Post(key int64, priority int, claim Mint) (Act, bool)
 	Release(claim Act) bool
 	Holders(key int64) []Act
 	Machines() []string
@@ -94,10 +94,10 @@ func (m *mesh) Stop() {
 	m.transport.Close()
 }
 
-func (m *mesh) Post(key int64, priority int) (Act, bool) {
+func (m *mesh) Post(key int64, priority int, claim Mint) (Act, bool) {
 	done := make(chan Act, 1)
 	m.engine.Add(evt.Func(func(context.Context) {
-		act := m.mintAct(key, priority, ActClaim, nil)
+		act := m.mintAct(key, priority, ActClaim, &Act{Mint: claim, Key: key, Priority: priority, Machine: m.cfg.Machine})
 		if !m.absorb(act) {
 			close(done)
 			return

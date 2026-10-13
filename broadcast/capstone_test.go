@@ -65,7 +65,7 @@ func TestMeshConvergesOverTheWire(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				if _, ok := meshes[i].Post(int64(100+i), 20); !ok {
+				if _, ok := meshes[i].Post(int64(100+i), 20, Mint{}); !ok {
 					t.Errorf("member %d must be alive to post", i)
 				}
 			}(i)
