@@ -141,3 +141,34 @@ func TestMeshOnTheTickClockTakesALateJoiner(t *testing.T) {
 		return len(a) == 1 && a[0].Mint == mine.Mint && len(b) == 1 && b[0].Mint == theirs.Mint
 	})
 }
+
+func TestAMemberRefusesItsOwnIdFromAnotherMachine(t *testing.T) {
+	m := meshRoomOn(t, tickTestClock, 1, nil, fullMesh(1))[0].(*mesh)
+	t.Cleanup(m.Stop)
+	own := m.mintAct(7, 20, ActClaim, nil)
+	if !m.absorb(own) {
+		t.Fatal("the member folds its own claim")
+	}
+	other := Act{
+		Mint:     Mint{Step: m.clock.Step(), Member: m.id, Nonce: 99},
+		Key:      8,
+		Priority: 20,
+		Machine:  "machine-z",
+		Kind:     ActClaim,
+	}
+	if m.absorb(other) {
+		t.Fatal("an act under this member's id from another machine is refused")
+	}
+	if len(m.state.holders(8)) != 0 || m.seen["machine-z"] {
+		t.Fatal("a refused act leaves no hold and no machine")
+	}
+	m.learn("peer", NewMessage(m.id, true))
+	for range m.cfg.Rounds {
+		if id, ok := m.addrID["peer"]; ok {
+			m.expire(id)
+		}
+	}
+	if !m.seen[m.cfg.Machine] || len(m.state.holders(7)) != 1 {
+		t.Fatal("a silent peer under this member's id never expires the member itself")
+	}
+}

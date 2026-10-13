@@ -143,6 +143,9 @@ func (m *mesh) mintAct(key int64, priority int, kind ActKind, claim *Act) Act {
 }
 
 func (m *mesh) absorb(act Act) bool {
+	if act.Mint.Member == m.id && act.Machine != m.cfg.Machine {
+		return false
+	}
 	if !m.clock.Record(act.Tick(), act.Output, act.Proof) {
 		return false
 	}
@@ -219,7 +222,7 @@ func (m *mesh) round() {
 }
 
 func (m *mesh) learn(peer string, message Message) {
-	if id := message.Origin(); id != 0 {
+	if id := message.Origin(); id != 0 && id != m.id {
 		m.addrID[peer] = id
 		m.hit(id)
 	}

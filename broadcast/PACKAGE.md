@@ -184,7 +184,10 @@ voice is `evt.Notice`. Imports `evt` only.
   that arrives early waits, and is never acted on before. A door whose
   dial goes unanswered for the configured round count is gone: its
   entries leave the fold and what it held is released for by whoever
-  saw it hold, as acts like any other, pushed off the engine.
+  saw it hold, as acts like any other, pushed off the engine. Member
+  ids are distinct by contract; an act or a peer under this member's
+  own id from another machine is refused, so a duplicate is left out
+  instead of expiring the member itself.
 
 ## How it is consumed
 
