@@ -1,4 +1,40 @@
 # Changelog
+## [0.4.1]: the mesh takes its clock, a post names its claim
+
+0.4.0's mesh built the VDF clock inside itself, so a mesh could only
+run on the chain. The clock is now a construction value behind one
+seam, and the machine's own time is the second clock behind it.
+
+- **the seam.** `MeshClock`: the tick a member mints at, the producer
+  that posts each tick to the member's engine, and the record of a
+  peer's tick. `VDFClock` is a `MeshClock` that also verifies.
+  `MeshConfig.Clock` carries it; `Room`, `Prime` and `Iterations`
+  leave the config, and the caller that wants the chain constructs it
+  (`NewVDFClock(prime, iterations, GenesisSeed(room), window, voice)`).
+  A mesh with no clock panics at construction.
+- **the machine's clock.** `tick_clock.go`: `NewTickClock(period,
+  window, voice)`. The tick is the machine's time counted in periods:
+  the wall clock taken once at construction plus the monotonic time
+  since, divided by the period, so machines whose clocks agree read the
+  same tick and no tick goes backwards. No proof rides the act, nothing
+  is computed between ticks, and a joiner posts at once. A tick further
+  ahead of this machine's than the window is refused, as the sequencer
+  refuses one further behind, so a machine whose clock is wrong is left
+  out rather than moving every horizon; machines on this clock must
+  agree on the time to well inside `window` periods.
+- **a post names the claim it mirrors.** `Post(key, priority, claim
+  Mint)`: the claim act's `Claim` names the unix-room claim the post
+  stands for, so the home machine's door can map a front's request
+  mint to the act. The act's own mint stays the poster's.
+- **what the choice costs.** On the chain a claim is acted on `window`
+  ticks of computation after it is minted and one core computes
+  without rest; on the machine's clock the same window is `window`
+  periods and the member is idle between ticks. The chain's order does
+  not depend on any machine's time; the machine clock's does.
+
+The sequencer, the state, the log, the transport and the summaries are
+unchanged. The mesh suite runs on both clocks.
+
 ## [0.4.0]: the mesh half
 
 0.3.0's ordering is one process's room: every member is a transport in

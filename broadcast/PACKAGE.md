@@ -134,6 +134,15 @@ voice is `evt.Notice`. Imports `evt` only.
   after, and a tick whose predecessor is known is never trusted. The chain is computed off the member's
   engine: a producer goroutine computes ticks and posts each finished
   one, so nothing on the engine waits on arithmetic.
+- `tick_clock.go`: the machine's clock behind the same seam
+  (`MeshClock`, which `VDFClock` extends with `Verify`):
+  `NewTickClock(period, window, voice)`. The tick is the machine's time
+  counted in periods, wall clock at construction plus the monotonic
+  time since; no proof, no computation between ticks, nothing to catch
+  up to. It records any tick up to `window` ahead of its own and
+  refuses one further ahead, so a wrong clock is left out instead of
+  moving every horizon. Machines on it must agree on the time to well
+  inside `window` periods.
 - `sequencer.go`: `Sequencer` and `State`. Acts are ordered by priority,
   then the tick, then a claim before a release, then the mint, so a
   release sorts after its claim in one tick whoever minted it; the
@@ -162,8 +171,9 @@ voice is `evt.Notice`. Imports `evt` only.
   connections are pooled per peer; an ack is a receipt, not a vote, and
   a push the receiver had no room for is acked as refused.
 - `mesh.go`: `Mesh`, the machine's one mesh member, constructed whole
-  (`NewMesh(id, MeshConfig)`) with the clock, transport, sequencer,
-  state and log built inside it, at the priorities the config names.
+  (`NewMesh(id, MeshConfig)`) around the clock the config carries (the
+  chain or the machine's; none is a panic), with the transport,
+  sequencer, state and log built inside it, at the priorities the config names.
   `Post` mints a claim at the current tick and folds it, and gossip
   carries it; `Release` mints a release naming the claim it releases;
   either reports false when the act did not fold (no tick under it

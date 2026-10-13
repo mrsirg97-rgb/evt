@@ -41,17 +41,15 @@ func TestMeshConvergesOverTheWire(t *testing.T) {
 			}
 		}
 		meshes[i] = NewMesh(int64(i)+1000, MeshConfig{
-			Room:       "capstone-room",
-			Machine:    fmt.Sprintf("machine-%d", i),
-			Addr:       addrs[i],
-			Peers:      peersAddrs,
-			Prime:      RFC3526Prime1536(),
-			Iterations: iterations,
-			Timeout:    time.Second,
-			Idle:       time.Second,
-			Window:     4,
-			Rounds:     3,
-			Voice:      30,
+			Machine: fmt.Sprintf("machine-%d", i),
+			Addr:    addrs[i],
+			Peers:   peersAddrs,
+			Clock:   NewVDFClock(RFC3526Prime1536(), iterations, GenesisSeed("capstone-room"), 4, 30),
+			Timeout: time.Second,
+			Idle:    time.Second,
+			Window:  4,
+			Rounds:  3,
+			Voice:   30,
 		})
 	}
 	for i := range meshes {
