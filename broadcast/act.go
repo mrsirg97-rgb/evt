@@ -32,6 +32,12 @@ func actLess(a, b Act) bool {
 	if a.Priority != b.Priority {
 		return a.Priority > b.Priority
 	}
+	if a.Mint.Step != b.Mint.Step {
+		return a.Mint.Step < b.Mint.Step
+	}
+	if a.Kind != b.Kind {
+		return a.Kind == ActClaim
+	}
 	return mintLess(a.Mint, b.Mint)
 }
 

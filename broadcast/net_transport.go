@@ -177,6 +177,7 @@ func (t *netTransport) handle(conn net.Conn, onMessages func(messages ...Message
 				select {
 				case t.inbound <- messages:
 				default:
+					accepted = false
 				}
 			}
 			ack := byte(0)

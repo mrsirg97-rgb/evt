@@ -136,3 +136,33 @@ func TestMeshWireRoundTrips(t *testing.T) {
 		t.Fatalf("the tick must survive the wire: %+v", gotTick)
 	}
 }
+
+func TestVDFClockTrustsOnlyPastAGap(t *testing.T) {
+	prime := RFC3526Prime1536()
+	seed := GenesisSeed("trust-room")
+	chain := vdf.NewVDF(prime, 2000)
+	outputs := []*big.Int{seed}
+	proofs := []*vdf.VDFProof{nil}
+	for i := 0; i < 6; i++ {
+		output, proof := chain.ComputeVDF(outputs[i])
+		outputs = append(outputs, output)
+		proofs = append(proofs, proof)
+	}
+	clock := NewVDFClock(prime, 2000, seed, 4, 30)
+
+	if clock.Trust(1, big.NewInt(12345), proofs[1]) {
+		t.Fatal("a tick whose predecessor is known must be verified, never trusted")
+	}
+	if !clock.Trust(4, outputs[4], proofs[4]) {
+		t.Fatal("a member behind a gap trusts one entry")
+	}
+	if clock.Record(5, big.NewInt(12345), proofs[5]) {
+		t.Fatal("a forged tick after the trusted entry must be refused")
+	}
+	if !clock.Record(5, outputs[5], proofs[5]) || clock.Step() != 5 {
+		t.Fatalf("every tick after the trusted entry verifies, step=%d", clock.Step())
+	}
+	if clock.Trust(3, outputs[3], proofs[3]) {
+		t.Fatal("the clock never trusts backwards")
+	}
+}

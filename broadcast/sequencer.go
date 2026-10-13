@@ -80,6 +80,14 @@ func (s *sequencer) prune() {
 			delete(s.seen, mint)
 		}
 	}
+	kept := s.applied[:0]
+	for _, act := range s.applied {
+		if int64(act.Tick()) >= floor {
+			kept = append(kept, act)
+		}
+	}
+	clear(s.applied[len(kept):])
+	s.applied = kept
 }
 
 func (s *sequencer) position(act Act) int {
@@ -97,6 +105,7 @@ func (s *sequencer) Horizon() int64 {
 func (s *sequencer) Observe(tick int64) {
 	if tick > s.highest {
 		s.highest = tick
+		s.prune()
 	}
 }
 

@@ -127,12 +127,17 @@ voice is `evt.Notice`. Imports `evt` only.
   the frontier — the outputs a member has verified, by computing or by
   recording a proof — is the mesh's shared clock: its top is the tick a
   member mints at, a proof that does not verify is refused and never
-  advances it, and a joiner trusts the first entry a peer hands it and
-  verifies every tick after. The chain is computed off the member's
+  advances it. The frontier keeps each tick's proof and a gossip reply
+  carries it, so a member behind verifies up to the fastest peer each
+  round; across a gap wider than the frontier — a joiner, a machine
+  back from sleep — a member trusts one entry and verifies every tick
+  after, and a tick whose predecessor is known is never trusted. The chain is computed off the member's
   engine: a producer goroutine computes ticks and posts each finished
   one, so nothing on the engine waits on arithmetic.
 - `sequencer.go`: `Sequencer` and `State`. Acts are ordered by priority,
-  then the mint, the same order as an operation's; the horizon is a
+  then the tick, then a claim before a release, then the mint, so a
+  release sorts after its claim in one tick whoever minted it; the
+  order keeps the window's acts only. The horizon is a
   window over the ticks, an act older than the window is refused and
   never folded, and an act that arrives late is put in its rightful
   place by undoing the tail and reapplying it — both directions through
@@ -143,7 +148,8 @@ voice is `evt.Notice`. Imports `evt` only.
   walks. A key may be held by several machines; the home machine's room
   decides between their claims.
 - `wal.go`: `WAL`, the log a member carries: append-deduped, replayable
-  past a tick watermark, compactable below the horizon window, and the
+  past a tick watermark, compacted below the horizon window on every
+  tick, and the
   source of the mints a summary hashes.
 - `gossip.go`: the summaries. A fixed number of buckets, each bucket
   hashed over the mints that land in it; two members reconcile by
@@ -153,19 +159,22 @@ voice is `evt.Notice`. Imports `evt` only.
   three verbs: a push carries acts and is acked, a pull carries a
   watermark and returns a log, a gossip carries a summary and returns
   the difference. Length-prefixed frames with count and size bounds;
-  connections are pooled per peer; an ack is a receipt, not a vote.
+  connections are pooled per peer; an ack is a receipt, not a vote, and
+  a push the receiver had no room for is acked as refused.
 - `mesh.go`: `Mesh`, the machine's one mesh member, constructed whole
   (`NewMesh(id, MeshConfig)`) with the clock, transport, sequencer,
   state and log built inside it, at the priorities the config names.
-  `Post` mints a claim at the current tick, folds it and fans it out;
-  `Release` mints a release naming the claim it releases. The fold's
+  `Post` mints a claim at the current tick and folds it, and gossip
+  carries it; `Release` mints a release naming the claim it releases;
+  either reports false when the act did not fold (no tick under it
+  yet). The fold's
   holders, the live machines and the horizon are read on the member's
   engine; the config's `Told` is called on the engine for each act once
   its tick is past the freshness horizon in this member's view — an act
   that arrives early waits, and is never acted on before. A door whose
   dial goes unanswered for the configured round count is gone: its
   entries leave the fold and what it held is released for by whoever
-  saw it hold, as acts like any other.
+  saw it hold, as acts like any other, pushed off the engine.
 
 ## How it is consumed
 

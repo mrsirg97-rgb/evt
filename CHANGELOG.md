@@ -20,10 +20,18 @@ a quorum.
   frontier, so a member mints at the fastest peer's pace by verifying
   (constant work per tick) rather than computing. The proof rides the
   act and the tick announcement; an unverified tick is refused, never
-  trusted. A joiner trusts one frontier entry — the tailnet — and
-  verifies every tick after it.
+  trusted. Every gossip reply carries the replier's frontier with its
+  proofs, so a member that is behind verifies its way up to the fastest
+  peer each round; a member behind by more than the frontier holds — a
+  joiner, or a machine back from sleep — trusts one entry across the
+  gap (the tailnet) and verifies every tick after it. A tick whose
+  predecessor is known is never trusted.
 - **one order, no quorum.** `sequencer.go`: acts ordered by priority,
-  then the mint, with a horizon window; an act older than the horizon
+  then the tick, then a claim before a release, then the mint — so a
+  release sorts after the claim it names even when another member
+  mints it in the claim's own tick — with a horizon window. The order
+  keeps the window's acts and drops the rest; a hold outlives its
+  claim's place in the order. An act older than the horizon
   window is refused (`ErrStaleTick`) and never folded, an act that
   arrives late is spliced into its rightful place by unwinding the tail
   and reapplying it, and the same acts in different arrival orders
@@ -33,12 +41,14 @@ a quorum.
   removes it. Both directions are undoable, which is what the reorg
   path walks.
 - **the log.** `wal.go`: the acts a member carries, append-deduped,
-  replayable past a tick watermark and compactable below the horizon
-  window. It is what a peer pulls and what gossip summarizes.
+  replayable past a tick watermark and compacted below the horizon
+  window on every tick. It is what a peer pulls and what gossip
+  summarizes.
 - **the transport.** `net_transport.go`: TCP, length-prefixed frames,
   one wire, three verbs — a push carries acts and is acked, a pull
   carries a watermark and returns a log, a gossip carries a summary and
-  returns the difference. Acks are receipts, not votes.
+  returns the difference. Acks are receipts, not votes; a push the
+  receiver had no room for is acked as refused.
 - **the summaries.** `gossip.go`: a summary hashes a fixed number of
   buckets over each act's mint; two summaries that differ by bucket
   yield the difference, so two members reconcile by exchanging one
@@ -46,8 +56,9 @@ a quorum.
 - **the member.** `mesh.go`: `Mesh`, the machine's one mesh member,
   constructed whole (`NewMesh(id, MeshConfig)`) with the clock,
   transport, sequencer, state and log built inside it. `Post` mints a
-  claim at the current tick and fans it out; `Release` mints a release
-  naming the claim; the fold's holders and the live machines are read
+  claim at the current tick and folds it, and gossip carries it;
+  `Release` mints a release naming the claim; either reports false
+  when the act did not fold — there is no tick under it yet; the fold's holders and the live machines are read
   on the member's engine. An act is acted on once its tick is past the
   freshness horizon in the member's view, not before; acts that arrive
   early wait. A door whose dial goes unanswered for the configured

@@ -136,3 +136,95 @@ func TestPeerCutOffFromTheHomeMachineIsNeverServed(t *testing.T) {
 		t.Fatalf("a peer cut off from the home machine is never served, holders=%d", len(meshes[2].Holders(7)))
 	}
 }
+
+func TestALateJoinerConverges(t *testing.T) {
+	meshes := meshRoom(t, 3, nil, fullMesh(3))
+	ctx := t.Context()
+	t.Cleanup(func() {
+		for i := range meshes {
+			meshes[i].Stop()
+		}
+	})
+	go meshes[0].Start(ctx)
+	go meshes[1].Start(ctx)
+	time.Sleep(time.Second)
+	go meshes[2].Start(ctx)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && meshes[0].Horizon()-meshes[2].Horizon() > 4 {
+		time.Sleep(25 * time.Millisecond)
+	}
+	if behind := meshes[0].Horizon() - meshes[2].Horizon(); behind > 4 {
+		t.Fatalf("the joiner must reach the mesh's tick, behind by %d", behind)
+	}
+
+	var mine, theirs Act
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if act, ok := meshes[2].Post(7, 20); ok {
+			mine = act
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	theirs, ok := meshes[0].Post(8, 20)
+	if !ok {
+		t.Fatal("the member must be alive to post")
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(meshes[0].Holders(7)) == 1 && len(meshes[2].Holders(8)) == 1 {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if held := meshes[0].Holders(7); len(held) != 1 || held[0].Mint != mine.Mint {
+		t.Fatalf("the joiner's claim must reach the mesh, holders=%d", len(held))
+	}
+	if held := meshes[2].Holders(8); len(held) != 1 || held[0].Mint != theirs.Mint {
+		t.Fatalf("the mesh's claim must reach the joiner, holders=%d", len(held))
+	}
+}
+
+func TestAPostBeforeTheFirstTickIsRefused(t *testing.T) {
+	meshes := meshRoom(t, 1, nil, fullMesh(1))
+	t.Cleanup(meshes[0].Stop)
+	posted := make(chan bool, 1)
+	go func() {
+		_, ok := meshes[0].Post(7, 20)
+		posted <- ok
+	}()
+	time.Sleep(50 * time.Millisecond)
+	go meshes[0].Start(t.Context())
+	select {
+	case ok := <-posted:
+		if ok {
+			t.Fatal("a post with no tick under it must be refused, not reported held")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the post never answered")
+	}
+	if held := len(meshes[0].Holders(7)); held != 0 {
+		t.Fatalf("a refused post must not hold, holders=%d", held)
+	}
+}
+
+func TestTheLogStaysInsideTheWindow(t *testing.T) {
+	meshes := meshRoom(t, 1, nil, fullMesh(1))
+	startAll(t, meshes)
+	for i := 0; i < 200; i++ {
+		claim, ok := meshes[0].Post(7, 20)
+		if !ok {
+			t.Fatal("the member must be alive to post")
+		}
+		meshes[0].Release(claim)
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+	m := meshes[0].(*mesh)
+	var logged, ordered int
+	m.ask(func() { logged, ordered = len(m.wal.Mints()), len(m.seq.Order()) })
+	if logged != 0 || ordered != 0 {
+		t.Fatalf("acts below the window must leave the log and the order, log=%d order=%d", logged, ordered)
+	}
+}

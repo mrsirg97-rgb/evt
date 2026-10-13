@@ -65,3 +65,50 @@ func TestSequencerRefusesStale(t *testing.T) {
 		t.Fatalf("a refused act must not join the order, len=%d", len(seq.Order()))
 	}
 }
+
+func TestSequencerSortsAReleaseAfterItsClaimInOneTick(t *testing.T) {
+	claim := testAct(5, 200, 0, 7, 20, "remote", ActClaim)
+	release := testAct(5, 100, 0, 7, 20, "home", ActRelease)
+	release.Claim = &claim
+
+	for _, arrival := range [][]Act{{claim, release}, {release, claim}} {
+		state := NewMeshState().(*meshState)
+		seq := NewSequencer(4)
+		for _, act := range arrival {
+			if err := seq.Apply(state, act); err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+		}
+		if order := seq.Order(); order[0].Kind != ActClaim {
+			t.Fatalf("the claim sorts before its release, got %v first", order[0].Kind)
+		}
+		if held := len(state.holders(7)); held != 0 {
+			t.Fatalf("a released claim must not hold, holders=%d", held)
+		}
+	}
+}
+
+func TestSequencerDropsTheOrderBelowTheWindow(t *testing.T) {
+	state := NewMeshState().(*meshState)
+	seq := NewSequencer(2)
+
+	old := testAct(10, 1, 1, 7, 20, "a", ActClaim)
+	seq.Apply(state, old)
+	seq.Apply(state, testAct(11, 1, 2, 8, 20, "a", ActClaim))
+	seq.Observe(20)
+
+	if len(seq.Order()) != 0 {
+		t.Fatalf("the order keeps the window only, len=%d", len(seq.Order()))
+	}
+	if len(state.holders(7)) != 1 {
+		t.Fatal("a hold outlives its act's place in the order")
+	}
+	release := testAct(20, 1, 3, 7, 20, "a", ActRelease)
+	release.Claim = &old
+	if err := seq.Apply(state, release); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(state.holders(7)) != 0 {
+		t.Fatal("a release past the window still ends its hold")
+	}
+}

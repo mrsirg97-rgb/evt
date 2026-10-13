@@ -98,7 +98,10 @@ func (m *mesh) Post(key int64, priority int) (Act, bool) {
 	done := make(chan Act, 1)
 	m.engine.Add(evt.Func(func(context.Context) {
 		act := m.mintAct(key, priority, ActClaim, nil)
-		m.absorb(act)
+		if !m.absorb(act) {
+			close(done)
+			return
+		}
 		done <- act
 	}), priority)
 	return m.wait(done)
@@ -108,7 +111,10 @@ func (m *mesh) Release(claim Act) bool {
 	done := make(chan Act, 1)
 	m.engine.Add(evt.Func(func(context.Context) {
 		act := m.mintAct(claim.Key, claim.Priority, ActRelease, &claim)
-		m.absorb(act)
+		if !m.absorb(act) {
+			close(done)
+			return
+		}
 		done <- act
 	}), claim.Priority)
 	_, ok := m.wait(done)
@@ -117,8 +123,8 @@ func (m *mesh) Release(claim Act) bool {
 
 func (m *mesh) wait(done chan Act) (Act, bool) {
 	select {
-	case act := <-done:
-		return act, true
+	case act, ok := <-done:
+		return act, ok
 	case <-m.ctx.Done():
 		return Act{}, false
 	}
@@ -137,18 +143,20 @@ func (m *mesh) mintAct(key int64, priority int, kind ActKind, claim *Act) Act {
 	}
 }
 
-func (m *mesh) absorb(act Act) {
+func (m *mesh) absorb(act Act) bool {
 	if !m.clock.Record(act.Tick(), act.Output, act.Proof) {
-		return
+		return false
 	}
 	if err := m.seq.Apply(m.state, act); err != nil {
-		return
+		return false
 	}
 	m.wal.Append(act)
 	m.idMachine[act.Mint.Member] = act.Machine
 	m.seen[act.Machine] = true
 	m.deliver(act)
+	return true
 }
+
 func (m *mesh) deliver(act Act) {
 	if act.Machine == m.cfg.Machine {
 		return
@@ -163,9 +171,14 @@ func (m *mesh) deliver(act Act) {
 }
 
 func (m *mesh) onTick(index uint64) {
-	m.seq.Observe(int64(index))
-	m.recheck()
+	m.observe(index)
 	m.round()
+}
+
+func (m *mesh) observe(index uint64) {
+	m.seq.Observe(int64(index))
+	m.wal.Compact(m.seq.Horizon() - m.cfg.Window)
+	m.recheck()
 }
 
 func (m *mesh) recheck() {
@@ -199,9 +212,7 @@ func (m *mesh) round() {
 				}
 				for _, message := range missing {
 					m.learn(peer, message)
-					if act, ok := message.Signal().(Act); ok {
-						m.absorb(act)
-					}
+					m.take(message)
 				}
 			}), m.cfg.Voice)
 		}(peer)
@@ -237,27 +248,31 @@ func (m *mesh) receive(err error, messages ...Message) {
 		return
 	}
 	for _, message := range messages {
-		m.engine.Add(evt.Func(func(context.Context) {
-			switch signal := message.Signal().(type) {
-			case Act:
-				m.absorb(signal)
-			case Tick:
-				m.stamp(signal)
-			}
-		}), m.cfg.Voice)
+		m.engine.Add(evt.Func(func(context.Context) { m.take(message) }), m.cfg.Voice)
+	}
+}
+
+func (m *mesh) take(message Message) {
+	switch signal := message.Signal().(type) {
+	case Act:
+		m.absorb(signal)
+	case Tick:
+		m.stamp(signal)
 	}
 }
 
 func (m *mesh) stamp(tick Tick) {
-	if !m.clock.Record(tick.Index, tick.Output, tick.Proof) {
-		if m.clock.Step() == 0 {
-			m.clock.Trust(tick.Index, tick.Output, tick.Proof)
-		}
+	if tick.Index <= m.clock.Step() {
+		return
 	}
+	if !m.clock.Record(tick.Index, tick.Output, tick.Proof) && !m.clock.Trust(tick.Index, tick.Output, tick.Proof) {
+		return
+	}
+	m.observe(m.clock.Step())
 }
 
 func (m *mesh) fanout(act Act) {
-	m.transport.Send(m.ctx, func(error) {}, NewMessage(m.id, true, act))
+	go m.transport.Send(m.ctx, func(error) {}, NewMessage(m.id, true, act))
 }
 
 func (m *mesh) sync(since int64) []Message {
@@ -278,6 +293,9 @@ func (m *mesh) serveGossip(theirSummary map[int]uint64) []Message {
 	out := []Message{}
 	m.ask(func() {
 		out = append(out, NewMessage(m.id, true))
+		for _, tick := range m.clock.Entries() {
+			out = append(out, NewMessage(m.id, true, tick))
+		}
 		mine := Summarize(m.wal.Mints())
 		for b, myHash := range mine.hash {
 			if theirSummary[b] == myHash {
