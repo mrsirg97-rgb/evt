@@ -1,4 +1,22 @@
 # Changelog
+## [0.4.2]: a member refuses its own id from another machine
+
+A mesh's member ids are distinct by contract: the mint carries the
+member, and the silent-door rule finds a machine by the member that
+minted for it. Two machines started on one id broke both without a
+word. Each folded the other's acts under its own id, and when the
+other went silent the member looked the id up, found its own machine,
+left its own seen set and released its own holds.
+
+- **the refusal.** `mesh.go`: an act minted under this member's id by
+  another machine does not fold, and a peer that answers under this
+  member's id is not counted as a door, so its silence expires nothing.
+  The two machines never see each other's claims; neither harms its
+  own.
+- **what it does not do.** The refusal is as silent as any other: a
+  refused act is not reported to its poster. Distinct ids stay the
+  caller's to give.
+
 ## [0.4.1]: the mesh takes its clock, a post names its claim
 
 0.4.0's mesh built the VDF clock inside itself, so a mesh could only
