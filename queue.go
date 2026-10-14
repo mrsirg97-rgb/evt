@@ -6,12 +6,12 @@ const (
 )
 
 type Queue interface {
+	Len() int
 	Push(e Event)
 	Pop() (Event, bool)
 	Peek() (Event, bool)
 	Update(id uint64, priority int) bool
 	View() []Event
-	Len() int
 }
 
 type queue struct {
@@ -24,13 +24,6 @@ func NewQueue(capacity int) Queue {
 		capacity = minCap
 	}
 	return &queue{evts: make([]*event, 0, capacity), positions: make(map[uint64]int, capacity)}
-}
-
-func less(a, b *event) bool {
-	if a.priority != b.priority {
-		return a.priority > b.priority
-	}
-	return a.id < b.id
 }
 
 func (q *queue) Len() int { return len(q.evts) }
@@ -107,6 +100,13 @@ func (q *queue) swap(i, j int) {
 	q.evts[j].index = j
 	q.positions[q.evts[i].id] = i
 	q.positions[q.evts[j].id] = j
+}
+
+func less(a, b *event) bool {
+	if a.priority != b.priority {
+		return a.priority > b.priority
+	}
+	return a.id < b.id
 }
 
 func (q *queue) up(i int) {

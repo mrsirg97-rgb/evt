@@ -1,21 +1,12 @@
 # evt
 
-A small SDK for events in Go. An engine, a signal, a room and a hand-off,
-standard library only.
-
-- **an engine**: closures run on one consumer, highest priority first,
-  arrival order within a priority;
-- **a signal**: an interface for what happened, told to whoever listens;
-- **a room** (`broadcast`): members exchanging signals over a transport,
-  in one process or across a pipe;
-- **an order** (`broadcast`): operations ordered identically on every
-  member with no leader — priority, then the machine's tick, then the
-  member — and a guarded key admitting one writer per version;
-- **a hand-off**: a cap on how much work starts at once.
+A small SDK for events in Go.
 
 ## install
 
-    go get github.com/mrsirg97-rgb/evt@latest
+```bash
+go get github.com/mrsirg97-rgb/evt@latest
+```
 
 ```go
 import (
@@ -24,12 +15,19 @@ import (
 )
 ```
 
-Needs Go 1.26 or newer. It requires nothing else.
+needs Go 1.26 or newer (requires nothing else).
+
+## what it contains
+
+- **an engine**: closures run on one consumer, highest priority first, arrival order within a priority.
+- **a signal**: an interface for what happened, told to whoever listens.
+- **a room** (`broadcast`): members exchanging signals over a transport, in one process or across a pipe.
+- **an order** (`broadcast`): operations ordered identically on every member with no leader (priority, the machine's tick, then the member) and a guarded key admitting one writer per version.
+- **a hand-off**: a cap on how much work starts at once.
 
 ## example
 
-Two members of a room on one engine. One publishes a move; the other is
-told on the engine's consumer.
+two members of a room on one engine. one publishes a move, the other is notified on the engine's consumer.
 
 ```go
 package main
@@ -76,19 +74,18 @@ func main() {
 }
 ```
 
-    member 1 moved the knight to f3
+```
+member 1 moved the knight to f3
+```
 
-What it shows:
+what it shows:
 
-- `moved` is a signal because it carries `evt.Mark`. That is the whole
-  declaration.
-- The room's transport posts to the engine at priority 30, so the
-  delivery is one more closure in the consumer's order.
-- `evt.Event` is work the engine runs; `evt.Signal` is what an
-  application tells. The two words never mean the same thing.
+- `moved` is a signal because it carries `evt.Mark`. That is the whole declaration.
+- The room's transport posts to the engine at priority 30, so the delivery is one more closure in the consumer's order.
+- `evt.Event` is work the engine runs, `evt.Signal` is what an application tells.
 
 ## more
 
-Each package carries a `PACKAGE.md`. `specs/SPEC_EVT.md` is the engine's
-spec and `specs/DESIGN_EVT.md` the module's design note.
+Each package carries a `PACKAGE.md`. `specs/SPEC_EVT.md` is the engine's spec and `specs/DESIGN_EVT.md` the module's design note.
+
 [rig](https://github.com/mrsirg97-rgb/rig) is the first application.

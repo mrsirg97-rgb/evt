@@ -2,10 +2,6 @@ package evt
 
 type Signal interface{ signal() }
 
-type Mark struct{}
-
-func (Mark) signal() {}
-
 type Snapshot interface {
 	Signal
 	Snapshot()
@@ -28,6 +24,10 @@ func (l Level) String() string {
 	}
 	return "info"
 }
+
+type Mark struct{}
+
+func (Mark) signal() {}
 
 type Notice struct {
 	Source string

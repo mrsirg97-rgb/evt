@@ -13,16 +13,6 @@ type Engine interface {
 	Pending() []Event
 }
 
-type Option func(*engine)
-
-func WithClock(c Clock) Option { return func(e *engine) { e.clock = c } }
-
-func WithTick(tick func(ctx context.Context)) Option {
-	return func(e *engine) { e.tick = tick }
-}
-
-func WithCapacity(n int) Option { return func(e *engine) { e.q = NewQueue(n) } }
-
 type engine struct {
 	mu      sync.Mutex
 	cond    *sync.Cond
@@ -118,3 +108,13 @@ func (e *engine) Pending() []Event {
 	defer e.mu.Unlock()
 	return e.q.View()
 }
+
+type Option func(*engine)
+
+func WithClock(c Clock) Option { return func(e *engine) { e.clock = c } }
+
+func WithTick(tick func(ctx context.Context)) Option {
+	return func(e *engine) { e.tick = tick }
+}
+
+func WithCapacity(n int) Option { return func(e *engine) { e.q = NewQueue(n) } }
