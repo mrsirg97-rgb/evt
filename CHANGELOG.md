@@ -1,4 +1,16 @@
 # Changelog
+## [0.4.3]: a tidier read
+
+No behaviour or API changes.
+
+- **the root package's notes.** `PACKAGE.md` at the root is now
+  `AGENTS.md`; `broadcast/PACKAGE.md` stays.
+- **declaration order.** `engine.go`'s options, `handoff.go`'s
+  `Submission`, `queue.go`'s `less` and `signal.go`'s `Mark` sit after
+  the types they serve; `Queue` lists `Len` first.
+- **the README.** What the module contains moves under its own
+  heading, below the install.
+
 ## [0.4.2]: a member refuses its own id from another machine
 
 A mesh's member ids are distinct by contract: the mint carries the

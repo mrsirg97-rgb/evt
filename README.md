@@ -86,6 +86,6 @@ what it shows:
 
 ## more
 
-Each package carries a `PACKAGE.md`. `specs/SPEC_EVT.md` is the engine's spec and `specs/DESIGN_EVT.md` the module's design note.
+The root package's notes are in `AGENTS.md`, `broadcast`'s in `broadcast/PACKAGE.md`. `specs/SPEC_EVT.md` is the engine's spec and `specs/DESIGN_EVT.md` the module's design note.
 
 [rig](https://github.com/mrsirg97-rgb/rig) is the first application.
