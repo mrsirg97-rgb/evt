@@ -12,13 +12,6 @@ type Cap interface {
 	Submit(ctx context.Context, work Closure, priority int) Submission
 }
 
-type Submission interface {
-	Started() bool
-	Settled() <-chan struct{}
-	Stop()
-	Release()
-}
-
 type cap struct {
 	engine  Engine
 	workers int
@@ -41,6 +34,13 @@ func (c *cap) InFlight() int {
 
 func (c *cap) Queued() int {
 	return int(c.queued.Load())
+}
+
+type Submission interface {
+	Started() bool
+	Settled() <-chan struct{}
+	Stop()
+	Release()
 }
 
 type submission struct {

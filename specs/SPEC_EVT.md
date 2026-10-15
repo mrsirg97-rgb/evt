@@ -77,7 +77,7 @@ evt/
   queue.go      Queue, NewQueue: the 4-ary max-heap with the position map
   engine.go     Engine, NewEngine, options: WithClock, WithTick, WithCapacity
   scheduler.go  Scheduler, NewScheduler, ErrNoEngine, ErrStarted
-  PACKAGE.md
+  AGENTS.md
 ```
 
 ## the five parts, C to Go
