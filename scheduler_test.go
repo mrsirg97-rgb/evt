@@ -51,6 +51,18 @@ func TestSchedulerScheduleStopJoins(t *testing.T) {
 	s.Stop()
 }
 
+func TestSchedulerStopJoinsWhenStopOvertakesTheStart(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		s := evt.NewScheduler(evt.NewEngine())
+		if err := s.Start(); err != nil {
+			t.Fatal(err)
+		}
+		// Stop may land before the start goroutine reaches the engine;
+		// the join must still close, and the engine must not hang.
+		s.Stop()
+	}
+}
+
 func TestSchedulerNilEngineSchedulesNothing(t *testing.T) {
 	if id := evt.NewScheduler(nil).Schedule(evt.Func(func(context.Context) {}), 1); id != 0 {
 		t.Fatalf("id %d, want 0", id)

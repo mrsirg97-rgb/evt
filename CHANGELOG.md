@@ -1,4 +1,33 @@
 # Changelog
+## [0.4.4]: an engine runs once
+
+Two `Start`s on one engine were the caller's bug: the scheduler
+refused (`ErrStarted`) and the engine did not guard. Unguarded was not
+harmless — a second `Start` on a *stopped* engine blocked in
+`cond.Wait` with nothing left to wake it: `Add` refuses after `Stop`
+without signalling, so the wait never ends. The raw engines in rig
+(its loop, its children, its decision train, its job runner) never
+walk through the scheduler's door, so the hang sat one wiring mistake
+away in the module's main consumer. The engine holds the rule itself
+now.
+
+- **the refusal.** `engine.go`: `Start` on a running or stopped engine
+  panics, naming the rule. The lifecycle is closed: idle, running,
+  stopped (terminal); no caller reaches the silent wait.
+- **the scheduler's stop is a cancel and a join.** `scheduler.Stop`
+  called `engine.Stop` directly, which could overtake the start
+  goroutine and stop an engine that never began — the old engine
+  healed that through the ctx's watch, the new one refuses it loudly.
+  The direct stop is gone: the ctx is the stop and the join is the
+  wait, which is what the spec already named.
+- **the invariant at the field.** `Cap.pending` is touched only by the
+  consumer; `handoff.go` now says so at the field, where an edit would
+  otherwise break it silently.
+- **what it does not do.** A first `Start` behaves exactly as before;
+  `Stop` stays idempotent and `Add` after `Stop` still refuses with no
+  id. Restarting a scheduler whose engine has stopped is still misuse:
+  the panic now names it where the wait used to swallow it.
+
 ## [0.4.3]: a tidier read
 
 No behaviour or API changes.

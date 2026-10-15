@@ -34,6 +34,10 @@ func NewEngine(opts ...Option) Engine {
 
 func (e *engine) Start(ctx context.Context) {
 	e.mu.Lock()
+	if e.running || e.stopped {
+		e.mu.Unlock()
+		panic("evt: an engine runs once: Start refuses a second start")
+	}
 	e.running = true
 	e.mu.Unlock()
 
