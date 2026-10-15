@@ -67,8 +67,10 @@ func (s *scheduler) Stop() {
 	cancel, done := s.cancel, s.done
 	s.started = false
 	s.mu.Unlock()
+	// the ctx is the stop: a direct engine.Stop here could overtake
+	// the start goroutine and stop an engine that never began, which
+	// Start refuses; the watch inside Start performs the stop.
 	cancel()
-	s.engine.Stop()
 	<-done
 }
 

@@ -2,6 +2,7 @@ package evt_test
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -200,4 +201,57 @@ func TestEngineAddAfterStopQueuesNothing(t *testing.T) {
 	if p := e.Pending(); len(p) != 0 {
 		t.Fatalf("an add after stop must queue nothing, pending %d", len(p))
 	}
+}
+
+func secondStart(t *testing.T, e evt.Engine) (returned <-chan struct{}, panicked *any) {
+	t.Helper()
+	done := make(chan struct{})
+	held := new(any)
+	go func() {
+		defer close(done)
+		defer func() { *held = recover() }()
+		e.Start(context.Background())
+	}()
+	return done, held
+}
+
+func refuseCheck(t *testing.T, returned <-chan struct{}, panicked *any) {
+	t.Helper()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a second Start must refuse promptly, it hung")
+	}
+	msg, ok := (*panicked).(string)
+	if !ok || !strings.Contains(msg, "runs once") {
+		t.Fatalf("a second Start must refuse loudly, naming the rule; got %v", *panicked)
+	}
+}
+
+func TestEngineRefusesASecondStartAfterStop(t *testing.T) {
+	e := evt.NewEngine()
+	ran := make(chan struct{})
+	e.Add(evt.Func(func(context.Context) { close(ran) }), 1)
+	finished := make(chan struct{})
+	go func() { e.Start(context.Background()); close(finished) }()
+	<-ran
+	e.Stop()
+	<-finished
+
+	returned, panicked := secondStart(t, e)
+	refuseCheck(t, returned, panicked)
+}
+
+func TestEngineRefusesASecondStartWhileRunning(t *testing.T) {
+	e := evt.NewEngine()
+	ran := make(chan struct{})
+	e.Add(evt.Func(func(context.Context) { close(ran) }), 1)
+	finished := make(chan struct{})
+	go func() { e.Start(context.Background()); close(finished) }()
+	<-ran
+
+	returned, panicked := secondStart(t, e)
+	refuseCheck(t, returned, panicked)
+	e.Stop()
+	<-finished
 }

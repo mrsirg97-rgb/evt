@@ -32,7 +32,8 @@ starts at once).
   hook, libevt's `tick_fn`; absent, the consumer waits on a cond),
   `WithCapacity`.
 - `Scheduler`: the harness: `Start() error` (`ErrNoEngine`,
-  `ErrStarted`), `Schedule`, `Stop` (cancel, stop, join), `Done`.
+  `ErrStarted`), `Schedule`, `Stop` (cancel, join: the ctx does the
+  stop), `Done`.
 - `signal.go`: `Signal`, an interface whose method is unexported, so a
   type is a signal only by carrying `Mark` (embed it; it adds no bytes
   to the type's JSON). `Snapshot` is a signal that is a state and not a
@@ -70,8 +71,10 @@ starts at once).
   shows the rest, sorted; an `Add` after `Stop` refuses (no id, nothing
   queued), so a producer of a dead engine cannot grow it. Cancelling
   `Start`'s ctx is a `Stop`.
-- Two `Start`s on one engine are the caller's bug: the scheduler is
-  the door that refuses (`ErrStarted`).
+- An engine runs once: a second `Start` on a running or stopped engine
+  panics, naming the rule. The scheduler refuses earlier with
+  `ErrStarted`, and its `Stop` is a cancel and a join (the ctx does the
+  stop, so it never halts an engine that has not begun).
 - `Update` on an id that already popped is `false`, never an error.
 - `Push` of a duplicate id is ignored (the position map is the identity).
 - Priority starves: a stream of high events never yields to low ones.

@@ -17,6 +17,8 @@ type cap struct {
 	workers int
 	started atomic.Int64
 	queued  atomic.Int64
+	// pending is touched only by the consumer: every read and write
+	// happens inside an event on c.engine, which runs one at a time.
 	pending []*submission
 }
 

@@ -151,10 +151,10 @@ finishes, nothing further runs, and `Pending` shows what was left
 no id: a producer of a dead engine cannot grow it (the loop's late
 input closes over exactly this). `Start(ctx)` returns when `Stop` is
 called or ctx is done; the ctx is the Go-centric stop, so a scheduler's
-`Stop` is a cancel plus a join on `Done`. Named: a second `Start` on a
-running engine refuses (`ErrStarted` at the scheduler; the engine
-itself is single-consumer by contract and does not guard against two
-`Start`s: the scheduler is the door that does).
+`Stop` is a cancel plus a join on `Done`. Named: an engine runs once: a
+second `Start` on a running or stopped engine panics, naming the rule
+(`ErrStarted` at the scheduler is the earlier, friendlier door, and its
+`Stop` never halts an engine that has not begun).
 
 ### 6. Phase 2a, the batch: built.
 
@@ -353,11 +353,12 @@ The Go cases (`evt/queue_test.go`, `engine_test.go`,
   `Start`; multi-producer adds while running are all executed; an event
   may add an event (re-entrancy, no deadlock); `WithTick` runs the hook
   when idle and the default blocks without spinning; `Stop` leaves the
-  pending set visible; `Start(ctx)` returns on cancel; a negative
-  priority clamps to 0.
+  pending set visible; `Start(ctx)` returns on cancel; a second `Start`
+  panics, naming the rule; a negative priority clamps to 0.
 - The scheduler: `Start` twice is `ErrStarted`: a nil engine is
-  `ErrNoEngine`; `Stop` joins (`Done` is closed); `Schedule` before
-  `Start` is queued and runs after.
+  `ErrNoEngine`; `Stop` joins (`Done` is closed), even landing before
+  the start reaches the engine; `Schedule` before `Start` is queued and
+  runs after.
 
 ## scope
 
