@@ -22,6 +22,7 @@ type loopTransport struct {
 
 	mu      sync.Mutex
 	recv    func(err error, messages ...Message)
+	recvKey *int
 	closed  bool
 	pending map[string]*latest
 }
@@ -97,11 +98,14 @@ func (t *loopTransport) Recv(ctx context.Context, callback func(err error, messa
 		callback(context.Canceled)
 		return
 	}
-	t.recv = callback
+	key := new(int)
+	t.recv, t.recvKey = callback, key
 	t.mu.Unlock()
 	context.AfterFunc(ctx, func() {
 		t.mu.Lock()
-		t.recv = nil
+		if t.recvKey == key {
+			t.recv, t.recvKey = nil, nil
+		}
 		t.mu.Unlock()
 		callback(ctx.Err())
 	})

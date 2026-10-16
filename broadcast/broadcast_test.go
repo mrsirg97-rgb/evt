@@ -432,3 +432,30 @@ func TestMintIssuesIdsBelowEveryMemberAndNeverReissues(t *testing.T) {
 		t.Fatalf("a named member below the floor moves it, got %d", third.Id())
 	}
 }
+
+func TestTheOldReceiverContextDoesNotBlindTheNewOne(t *testing.T) {
+	engine := evt.NewEngine()
+	ctx, cancel := context.WithCancel(context.Background())
+	go engine.Start(ctx)
+	t.Cleanup(cancel)
+	tr := broadcast.NewLoopTransport(4, engine, prioRoom)
+	old, stopOld := context.WithCancel(ctx)
+	tr.Recv(old, func(error, ...broadcast.Message) {})
+	got := make(chan broadcast.Message, 1)
+	tr.Recv(ctx, func(_ error, messages ...broadcast.Message) {
+		if len(messages) > 0 {
+			select {
+			case got <- messages[0]:
+			default:
+			}
+		}
+	})
+	stopOld()
+	time.Sleep(100 * time.Millisecond)
+	tr.Send(ctx, func(error) {}, broadcast.Heartbeat(4, true))
+	select {
+	case <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the old receiver's ctx death must not clear the newer receiver")
+	}
+}
