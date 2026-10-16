@@ -1,4 +1,30 @@
 # Changelog
+## [0.4.6]: a stopped engine settles its callers
+
+The cap treated a stopped engine as a live queue: `Add` refuses with no
+id and the refusal was thrown away. A queued `Submit` never entered a
+queue that would drain, so the caller — rig's swarm drain and its
+delegate — blocked forever on `<-Settled()`. `Release` decremented
+`started` for submissions that never took a place, eroding the cap one
+release at a time: rig guarded the call site, the cap did not guard
+itself.
+
+- **the stopped engine hands the place to the caller.** `handoff.go`:
+  when `Submit`'s add is refused, the submission takes the place,
+  closes `done` and returns started — the caller resolves, as on the
+  fast path. `Release` decrements inline when the engine is stopped;
+  `Stop` finds the queue never formed and stays quiet.
+- **the release claims the place.** `Release` returns without touching
+  `started` when the submission never took a place: the cap keeps its
+  own invariant instead of lending it to callers.
+- **a receiver ctx clears its own receiver.** `loopTransport` keeps
+  the receiver's identity beside the callback: the ctx's clear drops
+  only that call's callback, so a dead old context no longer blinds a
+  newer receiver that replaced it on the same transport.
+- **what it does not do.** The fast, queued and running paths are
+  unchanged for a live engine; `netTransport.Recv` stays a blocking
+  loop.
+
 ## [0.4.4]: an engine runs once
 
 Two `Start`s on one engine were the caller's bug: the scheduler

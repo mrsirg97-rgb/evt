@@ -62,21 +62,27 @@ func (s *submission) Stop() {
 	if s.place.Load() || s.c.workers <= 0 {
 		return
 	}
-	s.c.engine.Add(Func(func(consumer context.Context) {
+	if s.c.engine.Add(Func(func(consumer context.Context) {
 		if s.drop() {
 			s.settleStopped()
 		}
-	}), s.priority)
+	}), s.priority) == 0 {
+		// a stopped engine drops the add: the queue never formed, so the
+		// submission is already settled by Submit's stopped arm.
+		return
+	}
 }
 
 func (s *submission) Release() {
-	if s.c.workers <= 0 {
+	if s.c.workers <= 0 || !s.place.Load() {
 		return
 	}
-	s.c.engine.Add(Func(func(consumer context.Context) {
+	if s.c.engine.Add(Func(func(consumer context.Context) {
 		s.c.started.Add(-1)
 		s.c.startNext()
-	}), s.priority)
+	}), s.priority) == 0 {
+		s.c.started.Add(-1)
+	}
 }
 
 func (c *cap) Submit(ctx context.Context, work Closure, priority int) Submission {
@@ -97,11 +103,17 @@ func (c *cap) Submit(ctx context.Context, work Closure, priority int) Submission
 			return s
 		}
 	}
-	c.engine.Add(Func(func(consumer context.Context) {
+	if c.engine.Add(Func(func(consumer context.Context) {
 		c.pending = append(c.pending, s)
 		c.queued.Store(int64(len(c.pending)))
 		c.startNext()
-	}), priority)
+	}), priority) == 0 {
+		// a stopped engine drops adds: the queue would never drain, so the
+		// caller takes the place itself and settles, as on the fast path.
+		c.started.Add(1)
+		s.place.Store(true)
+		close(s.done)
+	}
 	return s
 }
 

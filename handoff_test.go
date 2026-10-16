@@ -159,3 +159,57 @@ func TestNoCapStartsEverything(t *testing.T) {
 		t.Fatalf("no cap holds no counts: %d %d", cap.InFlight(), cap.Queued())
 	}
 }
+
+func TestASubmitOnAStoppedEngineSettlesForTheCaller(t *testing.T) {
+	eng := evt.NewEngine()
+	ctx, cancel := context.WithCancel(context.Background())
+	go eng.Start(ctx)
+	cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for eng.Add(evt.Func(func(context.Context) {}), 30) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the engine never stopped")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cap := evt.NewCap(eng, 1)
+	s := cap.Submit(context.Background(), evt.Func(func(context.Context) {}), 30)
+	if !s.Started() {
+		t.Fatal("on a stopped engine the caller takes the place itself")
+	}
+	select {
+	case <-s.Settled():
+	case <-time.After(time.Second):
+		t.Fatal("a submit on a stopped engine must settle, not hang the caller on <-Settled()")
+	}
+	s.Release()
+	if got := cap.InFlight(); got != 0 {
+		t.Fatalf("the release returns the place it took: InFlight %d, want 0", got)
+	}
+}
+
+func TestAReleaseOfAnUnstartedSubmissionIsANoOp(t *testing.T) {
+	eng, ctx := engineRunning(t)
+	cap := evt.NewCap(eng, 1)
+	s1 := cap.Submit(ctx, evt.Func(func(context.Context) {}), 30)
+	queuedCtx, stop := context.WithCancel(ctx)
+	s2 := cap.Submit(queuedCtx, evt.Func(func(context.Context) {}), 30)
+	if s2.Started() {
+		t.Fatal("the second submit must say queued")
+	}
+	stop()
+	waitReady(t, "the queued submission settles stopped", func() bool {
+		select {
+		case <-s2.Settled():
+			return true
+		default:
+			return false
+		}
+	})
+	s2.Release()
+	if got := cap.InFlight(); got != 1 {
+		s1.Release()
+		t.Fatalf("a release of a submission that never took a place erodes the cap: InFlight %d, want 1", got)
+	}
+	s1.Release()
+}
