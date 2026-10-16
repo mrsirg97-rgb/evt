@@ -213,3 +213,42 @@ func TestAReleaseOfAnUnstartedSubmissionIsANoOp(t *testing.T) {
 	}
 	s1.Release()
 }
+
+func TestASubmissionQueuedBeforeAStopSettlesOnRelease(t *testing.T) {
+	eng := evt.NewEngine()
+	ctx, cancel := context.WithCancel(context.Background())
+	go eng.Start(ctx)
+	deadline := time.Now().Add(5 * time.Second)
+	for eng.Add(evt.Func(func(context.Context) {}), 30) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the engine never began")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cap := evt.NewCap(eng, 1)
+	a := cap.Submit(ctx, evt.Func(func(context.Context) {}), 30)
+	if !a.Started() {
+		t.Fatal("the first place is the caller's")
+	}
+	live, stopLive := context.WithCancel(context.Background())
+	t.Cleanup(stopLive)
+	b := cap.Submit(live, evt.Func(func(context.Context) {}), 30)
+	if b.Started() {
+		t.Fatal("the second submit must say queued")
+	}
+	cancel()
+	deadline = time.Now().Add(5 * time.Second)
+	for eng.Add(evt.Func(func(context.Context) {}), 30) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the engine never stopped")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	a.Release()
+	b.Stop()
+	select {
+	case <-b.Settled():
+	case <-time.After(2 * time.Second):
+		t.Fatal("a submission queued before the stop must settle when its place is released or it is stopped")
+	}
+}

@@ -2,6 +2,7 @@ package evt
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 )
 
@@ -19,7 +20,10 @@ type cap struct {
 	queued  atomic.Int64
 	// pending is touched only by the consumer: every read and write
 	// happens inside an event on c.engine, which runs one at a time.
+	// Once the engine has stopped there is no consumer, and the inline
+	// arms below take idle instead so they never overlap each other.
 	pending []*submission
+	idle    sync.Mutex
 }
 
 func NewCap(engine Engine, workers int) Cap {
@@ -52,6 +56,7 @@ type submission struct {
 	priority int
 	done     chan struct{}
 	place    atomic.Bool
+	settled  atomic.Bool
 }
 
 func (s *submission) Started() bool { return s.place.Load() }
@@ -67,9 +72,16 @@ func (s *submission) Stop() {
 			s.settleStopped()
 		}
 	}), s.priority) == 0 {
-		// a stopped engine drops the add: the queue never formed, so the
-		// submission is already settled by Submit's stopped arm.
-		return
+		s.c.idle.Lock()
+		defer s.c.idle.Unlock()
+		if s.place.Load() {
+			return
+		}
+		if s.drop() {
+			s.settleStopped()
+			return
+		}
+		s.settleStopped()
 	}
 }
 
@@ -81,7 +93,10 @@ func (s *submission) Release() {
 		s.c.started.Add(-1)
 		s.c.startNext()
 	}), s.priority) == 0 {
+		s.c.idle.Lock()
+		defer s.c.idle.Unlock()
 		s.c.started.Add(-1)
+		s.c.startNext()
 	}
 }
 
@@ -149,6 +164,9 @@ func (s *submission) run() {
 }
 
 func (s *submission) settleStopped() {
+	if !s.settled.CompareAndSwap(false, true) {
+		return
+	}
 	stopCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	s.work.Resolve(stopCtx)

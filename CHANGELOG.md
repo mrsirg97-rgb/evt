@@ -1,4 +1,20 @@
 # Changelog
+## [0.4.7]: the stopped engine finishes what the queue started
+
+0.4.6 settled a submission whose `Submit` found the engine stopped, but
+not one already queued when the engine stopped: `Release` decremented
+`started` inline and left the queue untouched, `Stop` answered for the
+queue that never formed and left the one that had. A submission queued
+behind a holder outlived the engine — `<-Settled()` hung the caller,
+which is how rig's swarm quit hung its wait group.
+
+- **the inline arms take the queue.** With the engine stopped there is
+  no consumer, so `Release` runs its whole event inline — release the
+  place and start the next — and `Stop` drops from the queue or settles
+  where the queue never reached; both serialize on a cap mutex so two
+  inline callers cannot fold the queue at once, and `settleStopped` is
+  a compare-and-swap, so a settled submission settles once.
+
 ## [0.4.6]: a stopped engine settles its callers
 
 The cap treated a stopped engine as a live queue: `Add` refuses with no
