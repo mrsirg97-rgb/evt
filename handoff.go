@@ -20,8 +20,6 @@ type cap struct {
 	queued  atomic.Int64
 	// pending is touched only by the consumer: every read and write
 	// happens inside an event on c.engine, which runs one at a time.
-	// Once the engine has stopped there is no consumer, and the inline
-	// arms below take idle instead so they never overlap each other.
 	pending []*submission
 	idle    sync.Mutex
 }
@@ -123,8 +121,6 @@ func (c *cap) Submit(ctx context.Context, work Closure, priority int) Submission
 		c.queued.Store(int64(len(c.pending)))
 		c.startNext()
 	}), priority) == 0 {
-		// a stopped engine drops adds: the queue would never drain, so the
-		// caller takes the place itself and settles, as on the fast path.
 		c.started.Add(1)
 		s.place.Store(true)
 		close(s.done)
