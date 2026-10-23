@@ -133,9 +133,10 @@ voice is `evt.Notice`. Imports `evt` only.
   carries it, so a member behind verifies up to the fastest peer each
   round; across a gap wider than the frontier — a joiner, a machine
   back from sleep — a member trusts one entry and verifies every tick
-  after, and a tick whose predecessor is known is never trusted. The chain is computed off the member's
-  engine: a producer goroutine computes ticks and posts each finished
-  one, so nothing on the engine waits on arithmetic.
+  after, and a tick whose predecessor is known is never trusted. The
+  chain is computed off the member's engine: a producer goroutine
+  computes ticks and posts each finished one, so nothing on the engine
+  waits on arithmetic.
 - `tick_clock.go`: the machine's clock behind the same seam
   (`MeshClock`, which `VDFClock` extends with `Verify`):
   `NewTickClock(period, window, voice)`. The tick is the machine's time
@@ -175,15 +176,17 @@ voice is `evt.Notice`. Imports `evt` only.
 - `mesh.go`: `Mesh`, the machine's one mesh member, constructed whole
   (`NewMesh(id, NewMeshConfig(machine, addr, clock, opts...))`, the
   options `WithPeers`, `WithTimeout`, `WithIdle`, `WithWindow`,
-  `WithRounds`, `WithVoice`, `WithTold`) around the clock the config carries (the
-  chain or the machine's; none is a panic), with the transport,
-  sequencer, state and log built inside it, at the priorities the config names.
+  `WithRounds`, `WithVoice`, `WithTold`) around the clock the config
+  carries (the chain or the machine's; none is a panic), with the
+  transport, sequencer, state and log built inside it, at the
+  priorities the config names.
   `Post` mints a claim at the current tick and folds it, and gossip
   carries it; `Release` mints a release naming the claim it releases;
   either reports false when the act did not fold (no tick under it
   yet). The fold's
   holders, the live machines, the horizon, the order, the reorg and
-  refusal counts and a fresh mint are read on the member's engine; the config's `Told` is called on the engine for each act once
+  refusal counts and a fresh mint are read on the member's engine; the
+  config's `Told` is called on the engine for each act once
   its tick is past the freshness horizon in this member's view — an act
   that arrives early waits, and is never acted on before. A door whose
   dial goes unanswered for the configured round count is gone: its

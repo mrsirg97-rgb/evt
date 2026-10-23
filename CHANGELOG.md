@@ -1,4 +1,35 @@
 # Changelog
+## [0.5.1]: the release carries its notes
+
+0.5.0 was tagged without a changelog section, so the release workflow
+refused it and the tag has no release. No code changes.
+
+- **the changelog names 0.5.0.** Its section is below; the release
+  workflow reads the tag's section, so 0.5.1 is the first 0.5 release.
+- **`broadcast/PACKAGE.md` wraps.** Three lines the 0.5.0 round left
+  long are wrapped to the file's width.
+
+## [0.5.0]: the mesh's values are interfaces
+
+The mesh's wire and its config were the last exported structs in
+`broadcast`: callers built them field by field and set fields after
+construction. Both are now built whole and read through accessors. A
+breaking change for importers; the wire is unchanged.
+
+- **`Act` is an interface.** `NewAct(mint, key, priority, machine,
+  kind, claim, output, proof)` builds one; `Key()`, `Priority()`,
+  `Mint()`, `Kind()`, `Machine()`, `Claim()`, `Output()`, `Proof()` and
+  `Tick()` read it. The codec is declared explicitly over a private
+  wire struct that keeps the old struct's JSON byte for byte, so a 0.5
+  member and a 0.4 member read each other's acts.
+- **`MeshConfig` is an interface built by options.**
+  `NewMeshConfig(machine, addr, clock, opts...)` with `WithPeers`,
+  `WithTimeout`, `WithIdle`, `WithWindow`, `WithRounds`, `WithVoice` and
+  `WithTold`; nothing is assigned after construction.
+- **migrating.** Field reads become calls (`act.Key` → `act.Key()`), an
+  `Act{...}` literal becomes `NewAct(...)`, and a config's assignments
+  become its options.
+
 ## [0.4.7]: the stopped engine finishes what the queue started
 
 0.4.6 settled a submission whose `Submit` found the engine stopped, but
