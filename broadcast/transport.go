@@ -39,20 +39,6 @@ func (t *loopTransport) Id() int64 {
 	return t.id
 }
 
-func stateKey(messages []Message) (string, bool) {
-	if len(messages) != 1 {
-		return "", false
-	}
-	m := messages[0]
-	switch ev := m.Signal().(type) {
-	case nil:
-		return fmt.Sprintf("%d/heartbeat", m.Origin()), true
-	case evt.Snapshot:
-		return fmt.Sprintf("%d/%T", m.Origin(), ev), true
-	}
-	return "", false
-}
-
 func (t *loopTransport) Send(ctx context.Context, callback func(ack error), messages ...Message) {
 	if err := ctx.Err(); err != nil {
 		callback(err)
@@ -116,4 +102,18 @@ func (t *loopTransport) Close() {
 	t.closed = true
 	t.recv = nil
 	t.mu.Unlock()
+}
+
+func stateKey(messages []Message) (string, bool) {
+	if len(messages) != 1 {
+		return "", false
+	}
+	m := messages[0]
+	switch ev := m.Signal().(type) {
+	case nil:
+		return fmt.Sprintf("%d/heartbeat", m.Origin()), true
+	case evt.Snapshot:
+		return fmt.Sprintf("%d/%T", m.Origin(), ev), true
+	}
+	return "", false
 }

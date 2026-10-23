@@ -26,18 +26,6 @@ func (c *tickClock) Step() uint64 {
 	return uint64((c.wall + time.Since(c.epoch).Nanoseconds()) / c.period.Nanoseconds())
 }
 
-func (c *tickClock) Proof() *vdf.VDFProof { return nil }
-
-func (c *tickClock) Output() *big.Int { return nil }
-
-func (c *tickClock) Entries() []Tick { return nil }
-
-func (c *tickClock) Record(index uint64, _ *big.Int, _ *vdf.VDFProof) bool {
-	return index != 0 && int64(index) <= int64(c.Step())+c.window
-}
-
-func (c *tickClock) Trust(uint64, *big.Int, *vdf.VDFProof) bool { return false }
-
 func (c *tickClock) Start(ctx context.Context, engine evt.Engine, onTick func(index uint64)) {
 	go func() {
 		ticker := time.NewTicker(c.period)
@@ -62,3 +50,13 @@ func (c *tickClock) Start(ctx context.Context, engine evt.Engine, onTick func(in
 		}
 	}()
 }
+
+func (c *tickClock) Proof() *vdf.VDFProof { return nil }
+func (c *tickClock) Output() *big.Int     { return nil }
+func (c *tickClock) Entries() []Tick      { return nil }
+
+func (c *tickClock) Record(index uint64, _ *big.Int, _ *vdf.VDFProof) bool {
+	return index != 0 && int64(index) <= int64(c.Step())+c.window
+}
+
+func (c *tickClock) Trust(uint64, *big.Int, *vdf.VDFProof) bool { return false }

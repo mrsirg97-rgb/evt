@@ -50,7 +50,7 @@ func TestMeshStormShuffledDeliveryConverges(t *testing.T) {
 			t.Fatalf("peer %d admitted %d, peer 0 admitted %d", p, len(orders[p]), len(reference))
 		}
 		for i := range reference {
-			if orders[p][i].Mint != reference[i].Mint {
+			if orders[p][i].Mint() != reference[i].Mint() {
 				t.Fatalf("peer %d diverges at %d", p, i)
 			}
 		}
@@ -65,7 +65,7 @@ func TestMeshStormShuffledDeliveryConverges(t *testing.T) {
 				t.Fatalf("peer %d diverges on machine %s", p, machine)
 			}
 			for mint, act := range m {
-				if other[mint].Mint != act.Mint {
+				if other[mint].Mint() != act.Mint() {
 					t.Fatalf("peer %d diverges on machine %s mint %v", p, machine, mint)
 				}
 			}

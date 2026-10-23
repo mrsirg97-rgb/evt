@@ -25,6 +25,22 @@ type registry struct {
 	kinds map[string]codec
 }
 
+type jsonEncoder struct {
+	reg Registry
+}
+
+type jsonMessage struct {
+	Origin   int64           `json:"origin"`
+	Ok       bool            `json:"ok"`
+	Kind     string          `json:"kind,omitempty"`
+	Payload  json.RawMessage `json:"payload,omitempty"`
+	Mint     *Mint           `json:"mint,omitempty"`
+	Key      int64           `json:"key,omitempty"`
+	Parent   int64           `json:"parent,omitempty"`
+	Version  int64           `json:"version,omitempty"`
+	Priority int             `json:"priority,omitempty"`
+}
+
 func NewRegistry() Registry {
 	return &registry{types: map[reflect.Type]codec{}, kinds: map[string]codec{}}
 }
@@ -53,53 +69,11 @@ func (r *registry) with(typ reflect.Type, c codec) Registry {
 	return next
 }
 
-func Declare[T evt.Signal](r Registry, kind string, encode func(T) ([]byte, error), decode func([]byte) (T, error)) (Registry, error) {
-	if r == nil {
-		r = NewRegistry()
-	}
-	var sample T
-	typ := reflect.TypeOf(sample)
-	if typ == nil {
-		return nil, fmt.Errorf("broadcast: %q declares an interface, not a signal type", kind)
-	}
-	if _, dup := r.byType(typ); dup {
-		return nil, fmt.Errorf("broadcast: %T is registered twice", sample)
-	}
-	if _, dup := r.byKind(kind); dup {
-		return nil, fmt.Errorf("broadcast: %q is registered twice", kind)
-	}
-	return r.with(typ, codec{
-		kind: kind,
-		encode: func(ev evt.Signal) ([]byte, error) {
-			return encode(ev.(T))
-		},
-		decode: func(raw []byte) (evt.Signal, error) {
-			return decode(raw)
-		},
-	}), nil
-}
-
-type jsonMessage struct {
-	Origin   int64           `json:"origin"`
-	Ok       bool            `json:"ok"`
-	Kind     string          `json:"kind,omitempty"`
-	Payload  json.RawMessage `json:"payload,omitempty"`
-	Mint     *Mint           `json:"mint,omitempty"`
-	Key      int64           `json:"key,omitempty"`
-	Parent   int64           `json:"parent,omitempty"`
-	Version  int64           `json:"version,omitempty"`
-	Priority int             `json:"priority,omitempty"`
-}
-
 func NewJSONEncoder(reg Registry) Encoder {
 	if reg == nil {
 		reg = NewRegistry()
 	}
 	return &jsonEncoder{reg: reg}
-}
-
-type jsonEncoder struct {
-	reg Registry
 }
 
 func (e *jsonEncoder) Encode(message Message) ([]byte, error) {
@@ -146,4 +120,30 @@ func (e *jsonEncoder) Decode(encoded []byte) (Message, error) {
 		return NewOperation(*frame.Mint, frame.Priority, frame.Key, frame.Parent, frame.Version, signal), nil
 	}
 	return NewMessage(frame.Origin, frame.Ok, signal), nil
+}
+
+func Declare[T evt.Signal](r Registry, kind string, encode func(T) ([]byte, error), decode func([]byte) (T, error)) (Registry, error) {
+	if r == nil {
+		r = NewRegistry()
+	}
+	var sample T
+	typ := reflect.TypeOf(sample)
+	if typ == nil {
+		return nil, fmt.Errorf("broadcast: %q declares an interface, not a signal type", kind)
+	}
+	if _, dup := r.byType(typ); dup {
+		return nil, fmt.Errorf("broadcast: %T is registered twice", sample)
+	}
+	if _, dup := r.byKind(kind); dup {
+		return nil, fmt.Errorf("broadcast: %q is registered twice", kind)
+	}
+	return r.with(typ, codec{
+		kind: kind,
+		encode: func(ev evt.Signal) ([]byte, error) {
+			return encode(ev.(T))
+		},
+		decode: func(raw []byte) (evt.Signal, error) {
+			return decode(raw)
+		},
+	}), nil
 }

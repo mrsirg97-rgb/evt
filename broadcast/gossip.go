@@ -36,6 +36,7 @@ func mintBucket(mint Mint) int {
 	h := fnv.New64a()
 	var buf [24]byte
 	mintBytes(buf[:], mint)
+	h.Write(buf[:])
 	return int(h.Sum64() % meshBuckets)
 }
 

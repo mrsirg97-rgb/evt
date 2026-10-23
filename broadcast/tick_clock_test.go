@@ -86,8 +86,8 @@ func TestMeshOnTheTickClockTellsPastTheHorizon(t *testing.T) {
 	}
 	select {
 	case act := <-fired:
-		if act.Mint != claim.Mint {
-			t.Fatalf("the told carried mint %v, want %v", act.Mint, claim.Mint)
+		if act.Mint() != claim.Mint() {
+			t.Fatalf("the told carried mint %v, want %v", act.Mint(), claim.Mint())
 		}
 		if waited := time.Since(posted); waited < 4*tickTestPeriod {
 			t.Fatalf("an act is told once its tick is past the window, told after %v", waited)
@@ -138,24 +138,18 @@ func TestMeshOnTheTickClockTakesALateJoiner(t *testing.T) {
 	}
 	await(t, "a claim must cross both ways between the joiner and the mesh", func() bool {
 		a, b := meshes[0].Holders(7), meshes[2].Holders(8)
-		return len(a) == 1 && a[0].Mint == mine.Mint && len(b) == 1 && b[0].Mint == theirs.Mint
+		return len(a) == 1 && a[0].Mint() == mine.Mint() && len(b) == 1 && b[0].Mint() == theirs.Mint()
 	})
 }
 
 func TestAMemberRefusesItsOwnIdFromAnotherMachine(t *testing.T) {
 	m := meshRoomOn(t, tickTestClock, 1, nil, fullMesh(1))[0].(*mesh)
 	t.Cleanup(m.Stop)
-	own := m.mintAct(7, 20, ActClaim, nil)
+	own := NewAct(m.minter.Mint(), 7, 20, m.Machine(), ActClaim, nil, m.Clock().Output(), m.Clock().Proof())
 	if !m.absorb(own) {
 		t.Fatal("the member folds its own claim")
 	}
-	other := Act{
-		Mint:     Mint{Step: m.clock.Step(), Member: m.id, Nonce: 99},
-		Key:      8,
-		Priority: 20,
-		Machine:  "machine-z",
-		Kind:     ActClaim,
-	}
+	other := NewAct(Mint{Step: m.Clock().Step(), Member: m.id, Nonce: 99}, 8, 20, "machine-z", ActClaim, nil, nil, nil)
 	if m.absorb(other) {
 		t.Fatal("an act under this member's id from another machine is refused")
 	}
@@ -163,12 +157,12 @@ func TestAMemberRefusesItsOwnIdFromAnotherMachine(t *testing.T) {
 		t.Fatal("a refused act leaves no hold and no machine")
 	}
 	m.learn("peer", NewMessage(m.id, true))
-	for range m.cfg.Rounds {
+	for range m.cfg.Rounds() {
 		if id, ok := m.addrID["peer"]; ok {
 			m.expire(id)
 		}
 	}
-	if !m.seen[m.cfg.Machine] || len(m.state.holders(7)) != 1 {
+	if !m.seen[m.cfg.Machine()] || len(m.state.holders(7)) != 1 {
 		t.Fatal("a silent peer under this member's id never expires the member itself")
 	}
 }

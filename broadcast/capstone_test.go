@@ -40,17 +40,17 @@ func TestMeshConvergesOverTheWire(t *testing.T) {
 				peersAddrs = append(peersAddrs, addr)
 			}
 		}
-		meshes[i] = NewMesh(int64(i)+1000, MeshConfig{
-			Machine: fmt.Sprintf("machine-%d", i),
-			Addr:    addrs[i],
-			Peers:   peersAddrs,
-			Clock:   NewVDFClock(RFC3526Prime1536(), iterations, GenesisSeed("capstone-room"), 4, 30),
-			Timeout: time.Second,
-			Idle:    time.Second,
-			Window:  4,
-			Rounds:  3,
-			Voice:   30,
-		})
+		meshes[i] = NewMesh(int64(i)+1000, NewMeshConfig(
+			fmt.Sprintf("machine-%d", i),
+			addrs[i],
+			NewVDFClock(RFC3526Prime1536(), iterations, GenesisSeed("capstone-room"), 4, 30),
+			WithPeers(peersAddrs...),
+			WithTimeout(time.Second),
+			WithIdle(time.Second),
+			WithWindow(4),
+			WithRounds(3),
+			WithVoice(30),
+		))
 	}
 	for i := range meshes {
 		go meshes[i].Start(ctx)
@@ -86,10 +86,10 @@ func TestMeshConvergesOverTheWire(t *testing.T) {
 		if len(holders) != rounds {
 			t.Fatalf("key %d holds %d claims, want %d", key, len(holders), rounds)
 		}
-		member := holders[0].Mint.Member
+		member := holders[0].Mint().Member
 		for _, act := range holders {
-			if act.Mint.Member != member {
-				t.Fatalf("key %d carries two members: %d and %d", key, act.Mint.Member, member)
+			if act.Mint().Member != member {
+				t.Fatalf("key %d carries two members: %d and %d", key, act.Mint().Member, member)
 			}
 		}
 	}
@@ -111,7 +111,7 @@ func converged(t *testing.T, meshes []Mesh) bool {
 				return false
 			}
 			for j := range reference {
-				if other[j].Mint != reference[j].Mint {
+				if other[j].Mint() != reference[j].Mint() {
 					return false
 				}
 			}

@@ -108,10 +108,12 @@ voice is `evt.Notice`. Imports `evt` only.
   directory — the listing is the membership, and there is no registry
   process — and removes a file whose process is gone; `Dial` connects to
   a member's socket.
-- `act.go`: the mesh's wire. An `Act` is a claim or a release between
-  machines: its mint, the key and the priority, the machine that holds
-  or held, the tick's stamp (the chain's output and its proof) and, for
-  a release, the claim it releases. A `Tick` is a chain announcement:
+- `act.go`: the mesh's wire. An `Act` (`NewAct`, read through its
+  accessors) is a claim or a release between machines: its mint, the key
+  and the priority, the machine that holds or held, the tick's stamp
+  (the chain's output and its proof) and, for a release, the claim it
+  releases. Its codec is declared explicitly and keeps the struct's
+  JSON byte for byte. A `Tick` is a chain announcement:
   the tick's index, output and proof, no act attached. Both are declared
   once in `MeshCodec()`'s registry; the frame is the same one line of
   JSON the loop and the pipe speak.
@@ -171,15 +173,17 @@ voice is `evt.Notice`. Imports `evt` only.
   connections are pooled per peer; an ack is a receipt, not a vote, and
   a push the receiver had no room for is acked as refused.
 - `mesh.go`: `Mesh`, the machine's one mesh member, constructed whole
-  (`NewMesh(id, MeshConfig)`) around the clock the config carries (the
+  (`NewMesh(id, NewMeshConfig(machine, addr, clock, opts...))`, the
+  options `WithPeers`, `WithTimeout`, `WithIdle`, `WithWindow`,
+  `WithRounds`, `WithVoice`, `WithTold`) around the clock the config carries (the
   chain or the machine's; none is a panic), with the transport,
   sequencer, state and log built inside it, at the priorities the config names.
   `Post` mints a claim at the current tick and folds it, and gossip
   carries it; `Release` mints a release naming the claim it releases;
   either reports false when the act did not fold (no tick under it
   yet). The fold's
-  holders, the live machines and the horizon are read on the member's
-  engine; the config's `Told` is called on the engine for each act once
+  holders, the live machines, the horizon, the order, the reorg and
+  refusal counts and a fresh mint are read on the member's engine; the config's `Told` is called on the engine for each act once
   its tick is past the freshness horizon in this member's view — an act
   that arrives early waits, and is never acted on before. A door whose
   dial goes unanswered for the configured round count is gone: its

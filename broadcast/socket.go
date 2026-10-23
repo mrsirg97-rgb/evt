@@ -11,6 +11,8 @@ import (
 	"syscall"
 )
 
+const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
 type listener struct {
 	inner *net.UnixListener
 	path  string
@@ -31,8 +33,6 @@ func (l *listener) Close() error {
 func (l *listener) Addr() net.Addr {
 	return l.inner.Addr()
 }
-
-const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func EncodeID(id int64) string {
 	out := make([]byte, 0, 11)
@@ -107,30 +107,6 @@ func Scan(dir string) ([]int64, error) {
 	return out, nil
 }
 
-func socketFile(name string) (int64, int64, bool) {
-	name = strings.TrimSuffix(name, ".sock")
-	dash := strings.LastIndex(name, "-")
-	if dash < 0 {
-		return 0, 0, false
-	}
-	id, err := DecodeID(name[:dash])
-	if err != nil {
-		return 0, 0, false
-	}
-	pid, err := strconv.ParseInt(name[dash+1:], 10, 64)
-	if err != nil {
-		return 0, 0, false
-	}
-	return id, pid, true
-}
-
-func gone(pid int64) bool {
-	if pid <= 0 {
-		return true
-	}
-	return syscall.Kill(int(pid), 0) == syscall.ESRCH
-}
-
 func Dial(dir string, id int64) (net.Conn, error) {
 	files, err := os.ReadDir(dir)
 	if err != nil {
@@ -152,4 +128,28 @@ func Dial(dir string, id int64) (net.Conn, error) {
 		return conn, nil
 	}
 	return nil, fmt.Errorf("broadcast: member %d is not in the directory", id)
+}
+
+func gone(pid int64) bool {
+	if pid <= 0 {
+		return true
+	}
+	return syscall.Kill(int(pid), 0) == syscall.ESRCH
+}
+
+func socketFile(name string) (int64, int64, bool) {
+	name = strings.TrimSuffix(name, ".sock")
+	dash := strings.LastIndex(name, "-")
+	if dash < 0 {
+		return 0, 0, false
+	}
+	id, err := DecodeID(name[:dash])
+	if err != nil {
+		return 0, 0, false
+	}
+	pid, err := strconv.ParseInt(name[dash+1:], 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return id, pid, true
 }

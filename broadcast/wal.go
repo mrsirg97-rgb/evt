@@ -18,7 +18,7 @@ func NewWAL() WAL {
 
 func (w *wal) Append(acts ...Act) {
 	for _, act := range acts {
-		if _, ok := w.Act(act.Mint); ok {
+		if _, ok := w.Act(act.Mint()); ok {
 			continue
 		}
 		w.acts = append(w.acts, act)
@@ -27,11 +27,11 @@ func (w *wal) Append(acts ...Act) {
 
 func (w *wal) Act(mint Mint) (Act, bool) {
 	for _, act := range w.acts {
-		if act.Mint == mint {
+		if act.Mint() == mint {
 			return act, true
 		}
 	}
-	return Act{}, false
+	return nil, false
 }
 
 func (w *wal) Replay(since int64) []Act {
@@ -61,7 +61,7 @@ func (w *wal) Compact(before int64) int {
 func (w *wal) Mints() []Mint {
 	out := make([]Mint, 0, len(w.acts))
 	for _, act := range w.acts {
-		out = append(out, act.Mint)
+		out = append(out, act.Mint())
 	}
 	return out
 }

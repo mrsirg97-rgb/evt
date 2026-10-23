@@ -2,14 +2,12 @@ package broadcast
 
 import "testing"
 
-func testAct(tick, member, nonce, key int64, priority int, machine string, kind ActKind) Act {
-	return Act{
-		Mint:     Mint{Step: uint64(tick), Member: member, Nonce: nonce},
-		Key:      key,
-		Priority: priority,
-		Machine:  machine,
-		Kind:     kind,
+func testAct(tick, member, nonce, key int64, priority int, machine string, kind ActKind, claim ...Act) Act {
+	var claimed Act
+	if len(claim) > 0 {
+		claimed = claim[0]
 	}
+	return NewAct(Mint{Step: uint64(tick), Member: member, Nonce: nonce}, key, priority, machine, kind, claimed, nil, nil)
 }
 
 func TestSequencerReorgsLateArrival(t *testing.T) {
@@ -42,11 +40,11 @@ func TestSequencerSameTickTiebreak(t *testing.T) {
 	seqB.Apply(stateB, testAct(5, 2, 1, 7, 20, "a", ActClaim))
 
 	a, b := seqA.Order(), seqB.Order()
-	if a[0].Mint != b[0].Mint || a[1].Mint != b[1].Mint {
+	if a[0].Mint() != b[0].Mint() || a[1].Mint() != b[1].Mint() {
 		t.Fatalf("peers disagreed on the same-tick order: %v %v", a, b)
 	}
-	if a[0].Mint.Member != 1 {
-		t.Fatalf("the lower member sorts first, got %d", a[0].Mint.Member)
+	if a[0].Mint().Member != 1 {
+		t.Fatalf("the lower member sorts first, got %d", a[0].Mint().Member)
 	}
 }
 
@@ -68,8 +66,7 @@ func TestSequencerRefusesStale(t *testing.T) {
 
 func TestSequencerSortsAReleaseAfterItsClaimInOneTick(t *testing.T) {
 	claim := testAct(5, 200, 0, 7, 20, "remote", ActClaim)
-	release := testAct(5, 100, 0, 7, 20, "home", ActRelease)
-	release.Claim = &claim
+	release := testAct(5, 100, 0, 7, 20, "home", ActRelease, claim)
 
 	for _, arrival := range [][]Act{{claim, release}, {release, claim}} {
 		state := NewMeshState().(*meshState)
@@ -79,8 +76,8 @@ func TestSequencerSortsAReleaseAfterItsClaimInOneTick(t *testing.T) {
 				t.Fatalf("apply: %v", err)
 			}
 		}
-		if order := seq.Order(); order[0].Kind != ActClaim {
-			t.Fatalf("the claim sorts before its release, got %v first", order[0].Kind)
+		if order := seq.Order(); order[0].Kind() != ActClaim {
+			t.Fatalf("the claim sorts before its release, got %v first", order[0].Kind())
 		}
 		if held := len(state.holders(7)); held != 0 {
 			t.Fatalf("a released claim must not hold, holders=%d", held)
@@ -103,8 +100,7 @@ func TestSequencerDropsTheOrderBelowTheWindow(t *testing.T) {
 	if len(state.holders(7)) != 1 {
 		t.Fatal("a hold outlives its act's place in the order")
 	}
-	release := testAct(20, 1, 3, 7, 20, "a", ActRelease)
-	release.Claim = &old
+	release := testAct(20, 1, 3, 7, 20, "a", ActRelease, old)
 	if err := seq.Apply(state, release); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
