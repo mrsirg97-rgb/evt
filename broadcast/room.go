@@ -40,16 +40,6 @@ func (r *room) Add(origin int64) Member {
 	return r.add(origin)
 }
 
-func (r *room) add(origin int64) Member {
-	if origin < r.floor {
-		r.floor = origin
-	}
-	if _, ok := r.registry[origin]; !ok {
-		r.registry[origin] = NewMember(r, r.transport(origin))
-	}
-	return r.registry[origin]
-}
-
 func (r *room) Mint() Member {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -100,4 +90,14 @@ func (r *room) Broadcast(ctx context.Context, origin int64, messages ...Message)
 		return nil
 	}
 	return errors.New("broadcast missed " + strings.Join(missed, ", "))
+}
+
+func (r *room) add(origin int64) Member {
+	if origin < r.floor {
+		r.floor = origin
+	}
+	if _, ok := r.registry[origin]; !ok {
+		r.registry[origin] = NewMember(r, r.transport(origin))
+	}
+	return r.registry[origin]
 }

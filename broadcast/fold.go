@@ -97,21 +97,6 @@ func (f *roomFold) Gone(member int64) {
 	}
 }
 
-func (f *roomFold) settle(mint Mint) {
-	if _, ok := f.known[mint]; !ok {
-		return
-	}
-	delete(f.known, mint)
-	for i, act := range f.acts {
-		if act.Mint() == mint {
-			copy(f.acts[i:], f.acts[i+1:])
-			f.acts[len(f.acts)-1] = nil
-			f.acts = f.acts[:len(f.acts)-1]
-			return
-		}
-	}
-}
-
 func (f *roomFold) First(act Operation) bool {
 	for _, other := range f.acts {
 		if other.Key() != act.Key() || other.Mint() == act.Mint() {
@@ -130,68 +115,6 @@ func (f *roomFold) Admits(act Operation) bool {
 		return f.room(act) && !f.continuationWaits(act, payload)
 	case swapper:
 		return f.swapMay(act.Key(), payload)
-	}
-	return true
-}
-
-func (f *roomFold) room(claim Operation) bool {
-	set := f.holds[claim.Key()]
-	if placed(set) < f.count(claim.Key()) {
-		return true
-	}
-	for _, h := range set {
-		if h.Beyond || claim.Priority() <= h.Priority {
-			return false
-		}
-	}
-	return true
-}
-
-func (f *roomFold) count(key int64) int {
-	if f.places == nil {
-		return 0
-	}
-	return f.places(key)
-}
-
-func (f *roomFold) continuationWaits(act Operation, claim Claim) bool {
-	key := act.Key()
-	other := false
-	for _, o := range f.acts {
-		if o.Key() != key || o.Mint() == act.Mint() || o.Priority() != act.Priority() {
-			continue
-		}
-		c, ok := o.Signal().(Claim)
-		if ok && c.Talk != 0 && f.continues(key, c.Talk) {
-			other = true
-		}
-	}
-	return other && !(claim.Talk != 0 && f.continues(key, claim.Talk))
-}
-
-func (f *roomFold) continues(key int64, talk int64) bool {
-	for _, h := range f.holds[key] {
-		if h.Talk == talk {
-			return true
-		}
-	}
-	return false
-}
-
-func (f *roomFold) swapMay(key int64, swap swapper) bool {
-	if len(f.holds[key]) > 0 {
-		return false
-	}
-	if swap.Swap() {
-		return true
-	}
-	for _, o := range f.acts {
-		if o.Key() != key {
-			continue
-		}
-		if _, ok := o.Signal().(Claim); ok && f.room(o) {
-			return false
-		}
 	}
 	return true
 }
@@ -216,34 +139,6 @@ func (f *roomFold) Pin(admission, act Operation) {
 	f.drain(key)
 }
 
-func (f *roomFold) apply(admission, act Operation) {
-	if !f.guard.Admit(admission) {
-		return
-	}
-	key := admission.Key()
-	switch payload := act.Signal().(type) {
-	case Claim:
-		set := f.holds[key]
-		if set == nil {
-			set = make(map[Mint]Hold)
-			f.holds[key] = set
-		}
-		set[act.Mint()] = Hold{
-			Claim:    act.Mint(),
-			Priority: act.Priority(),
-			Talk:     payload.Talk,
-			Beyond:   placed(set) >= f.count(key),
-		}
-	case Release:
-		delete(f.holds[key], payload.Claim)
-	default:
-		if f.extra != nil {
-			_ = f.extra.Next(act)
-		}
-	}
-	f.settle(act.Mint())
-}
-
 func (f *roomFold) Include(act Operation) {
 	if _, ok := f.known[act.Mint()]; !ok {
 		return
@@ -256,25 +151,6 @@ func (f *roomFold) Include(act Operation) {
 		}
 	}
 	f.settle(act.Mint())
-}
-
-func (f *roomFold) drain(key int64) {
-	slots := f.ahead[key]
-	for len(slots) > 0 {
-		head := f.guard.Version(key)
-		for parent, p := range slots {
-			if parent < head {
-				delete(slots, parent)
-				f.Include(p.act)
-			}
-		}
-		p, ok := slots[head]
-		if !ok {
-			return
-		}
-		delete(slots, head)
-		f.apply(p.admission, p.act)
-	}
 }
 
 func (f *roomFold) Head(key int64) int64 {
@@ -344,6 +220,130 @@ func (f *roomFold) Waiting(key int64) []Operation {
 		}
 	}
 	return out
+}
+
+func (f *roomFold) apply(admission, act Operation) {
+	if !f.guard.Admit(admission) {
+		return
+	}
+	key := admission.Key()
+	switch payload := act.Signal().(type) {
+	case Claim:
+		set := f.holds[key]
+		if set == nil {
+			set = make(map[Mint]Hold)
+			f.holds[key] = set
+		}
+		set[act.Mint()] = Hold{
+			Claim:    act.Mint(),
+			Priority: act.Priority(),
+			Talk:     payload.Talk,
+			Beyond:   placed(set) >= f.count(key),
+		}
+	case Release:
+		delete(f.holds[key], payload.Claim)
+	default:
+		if f.extra != nil {
+			_ = f.extra.Next(act)
+		}
+	}
+	f.settle(act.Mint())
+}
+
+func (f *roomFold) continuationWaits(act Operation, claim Claim) bool {
+	key := act.Key()
+	other := false
+	for _, o := range f.acts {
+		if o.Key() != key || o.Mint() == act.Mint() || o.Priority() != act.Priority() {
+			continue
+		}
+		c, ok := o.Signal().(Claim)
+		if ok && c.Talk != 0 && f.continues(key, c.Talk) {
+			other = true
+		}
+	}
+	return other && !(claim.Talk != 0 && f.continues(key, claim.Talk))
+}
+
+func (f *roomFold) continues(key int64, talk int64) bool {
+	for _, h := range f.holds[key] {
+		if h.Talk == talk {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *roomFold) count(key int64) int {
+	if f.places == nil {
+		return 0
+	}
+	return f.places(key)
+}
+
+func (f *roomFold) drain(key int64) {
+	slots := f.ahead[key]
+	for len(slots) > 0 {
+		head := f.guard.Version(key)
+		for parent, p := range slots {
+			if parent < head {
+				delete(slots, parent)
+				f.Include(p.act)
+			}
+		}
+		p, ok := slots[head]
+		if !ok {
+			return
+		}
+		delete(slots, head)
+		f.apply(p.admission, p.act)
+	}
+}
+
+func (f *roomFold) room(claim Operation) bool {
+	set := f.holds[claim.Key()]
+	if placed(set) < f.count(claim.Key()) {
+		return true
+	}
+	for _, h := range set {
+		if h.Beyond || claim.Priority() <= h.Priority {
+			return false
+		}
+	}
+	return true
+}
+
+func (f *roomFold) settle(mint Mint) {
+	if _, ok := f.known[mint]; !ok {
+		return
+	}
+	delete(f.known, mint)
+	for i, act := range f.acts {
+		if act.Mint() == mint {
+			copy(f.acts[i:], f.acts[i+1:])
+			f.acts[len(f.acts)-1] = nil
+			f.acts = f.acts[:len(f.acts)-1]
+			return
+		}
+	}
+}
+
+func (f *roomFold) swapMay(key int64, swap swapper) bool {
+	if len(f.holds[key]) > 0 {
+		return false
+	}
+	if swap.Swap() {
+		return true
+	}
+	for _, o := range f.acts {
+		if o.Key() != key {
+			continue
+		}
+		if _, ok := o.Signal().(Claim); ok && f.room(o) {
+			return false
+		}
+	}
+	return true
 }
 
 func placed(set map[Mint]Hold) int {

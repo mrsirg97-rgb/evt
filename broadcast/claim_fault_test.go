@@ -9,7 +9,7 @@ func TestAPostCarriesTheClaimItMirrors(t *testing.T) {
 	if !ok {
 		t.Fatal("the member must be alive to post")
 	}
-	if act.Claim == nil || act.Claim.Mint != (Mint{Step: 1, Member: 42, Nonce: 7}) {
+	if act.Claim() == nil || act.Claim().Mint() != (Mint{Step: 1, Member: 42, Nonce: 7}) {
 		t.Fatalf("a claim act must name the unix-room claim it mirrors, got nil (the mirror's home door cannot map the front's request mint to the act)")
 	}
 }

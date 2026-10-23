@@ -11,10 +11,20 @@ import (
 	"time"
 )
 
+const (
+	opPush   byte = 0
+	opPull   byte = 1
+	opGossip byte = 2
+
+	maxConnsPerPeer = 16
+	maxFrameBytes   = 1 << 20
+	gossipChunk     = 4096
+)
+
 type NetTransport interface {
 	Transport
-	Peers() []string
 	Addr() string
+	Peers() []string
 	Serve(ctx context.Context, onMessages func(messages ...Message) error, onSync func(since int64) []Message, onGossip func(theirSummary map[int]uint64) []Message) error
 	Sync(ctx context.Context, peer string, since int64) ([]Message, error)
 	Gossip(ctx context.Context, peer string, summary map[int]uint64) ([]Message, error)
@@ -52,37 +62,7 @@ func NewNetTransport(id int64, addr string, peers []string, timeout, idle time.D
 	}
 }
 
-func (t *netTransport) pool(peer string) chan net.Conn {
-	t.poolMu.Lock()
-	defer t.poolMu.Unlock()
-	p, ok := t.pools[peer]
-	if !ok {
-		p = make(chan net.Conn, maxConnsPerPeer)
-		t.pools[peer] = p
-	}
-	return p
-}
-
-func (t *netTransport) acquire(ctx context.Context, peer string) (net.Conn, error) {
-	select {
-	case conn := <-t.pool(peer):
-		return conn, nil
-	default:
-		return (&net.Dialer{Timeout: t.timeout}).DialContext(ctx, "tcp", peer)
-	}
-}
-
-func (t *netTransport) release(peer string, conn net.Conn) {
-	select {
-	case t.pool(peer) <- conn:
-	default:
-		conn.Close()
-	}
-}
-
-func (t *netTransport) Id() int64       { return t.id }
-func (t *netTransport) Addr() string    { return t.addr }
-func (t *netTransport) Peers() []string { return t.peers }
+func (t *netTransport) Id() int64 { return t.id }
 
 func (t *netTransport) Send(ctx context.Context, callback func(ack error), messages ...Message) {
 	body, err := t.frame(messages...)
@@ -103,27 +83,47 @@ func (t *netTransport) Send(ctx context.Context, callback func(ack error), messa
 	wg.Wait()
 }
 
-func (t *netTransport) deliver(ctx context.Context, peer string, frame []byte) error {
-	conn, err := t.acquire(ctx, peer)
-	if err != nil {
-		return err
+func (t *netTransport) Recv(ctx context.Context, callback func(err error, messages ...Message)) {
+	for {
+		select {
+		case <-ctx.Done():
+			callback(ctx.Err())
+			return
+		case <-t.closed:
+			return
+		case messages := <-t.inbound:
+			callback(nil, messages...)
+		}
 	}
-	conn.SetDeadline(time.Now().Add(t.timeout))
-	if _, err := conn.Write(frame); err != nil {
-		conn.Close()
-		return err
-	}
-	ack := make([]byte, 1)
-	if _, err := io.ReadFull(conn, ack); err != nil {
-		conn.Close()
-		return err
-	}
-	t.release(peer, conn)
-	if ack[0] != 1 {
-		return errors.New("peer rejected: " + peer)
-	}
-	return nil
 }
+
+func (t *netTransport) Close() {
+	t.once.Do(func() {
+		close(t.closed)
+		t.mu.Lock()
+		if t.listener != nil {
+			t.listener.Close()
+		}
+		t.mu.Unlock()
+		t.poolMu.Lock()
+		for _, pool := range t.pools {
+			for {
+				select {
+				case conn := <-pool:
+					conn.Close()
+					continue
+				default:
+				}
+				break
+			}
+		}
+		t.pools = make(map[string]chan net.Conn)
+		t.poolMu.Unlock()
+	})
+}
+
+func (t *netTransport) Addr() string    { return t.addr }
+func (t *netTransport) Peers() []string { return t.peers }
 
 func (t *netTransport) Serve(ctx context.Context, onMessages func(messages ...Message) error, onSync func(since int64) []Message, onGossip func(theirSummary map[int]uint64) []Message) error {
 	listener, err := net.Listen("tcp", t.addr)
@@ -153,6 +153,100 @@ func (t *netTransport) Serve(ctx context.Context, onMessages func(messages ...Me
 		}
 		go t.handle(conn, onMessages, onSync, onGossip)
 	}
+}
+
+func (t *netTransport) Sync(ctx context.Context, peer string, since int64) ([]Message, error) {
+	conn, err := (&net.Dialer{Timeout: t.timeout}).DialContext(ctx, "tcp", peer)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(t.timeout))
+
+	req := make([]byte, 9)
+	req[0] = opPull
+	binary.BigEndian.PutUint64(req[1:], uint64(since))
+	if _, err := conn.Write(req); err != nil {
+		return nil, err
+	}
+	return t.readFrame(bufio.NewReader(conn))
+}
+
+func (t *netTransport) Gossip(ctx context.Context, peer string, summary map[int]uint64) ([]Message, error) {
+	conn, err := (&net.Dialer{Timeout: t.timeout}).DialContext(ctx, "tcp", peer)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(t.timeout))
+
+	header := make([]byte, 5)
+	header[0] = opGossip
+	binary.BigEndian.PutUint32(header[1:], uint32(len(summary)))
+	if _, err := conn.Write(header); err != nil {
+		return nil, err
+	}
+	buf := make([]byte, 0, 12*len(summary))
+	var pair [12]byte
+	for b, h := range summary {
+		binary.BigEndian.PutUint32(pair[0:4], uint32(b))
+		binary.BigEndian.PutUint64(pair[4:12], h)
+		buf = append(buf, pair[:]...)
+	}
+	if _, err := conn.Write(buf); err != nil {
+		return nil, err
+	}
+	return t.readFrame(bufio.NewReader(conn))
+}
+
+func (t *netTransport) acquire(ctx context.Context, peer string) (net.Conn, error) {
+	select {
+	case conn := <-t.pool(peer):
+		return conn, nil
+	default:
+		return (&net.Dialer{Timeout: t.timeout}).DialContext(ctx, "tcp", peer)
+	}
+}
+
+func (t *netTransport) deliver(ctx context.Context, peer string, frame []byte) error {
+	conn, err := t.acquire(ctx, peer)
+	if err != nil {
+		return err
+	}
+	conn.SetDeadline(time.Now().Add(t.timeout))
+	if _, err := conn.Write(frame); err != nil {
+		conn.Close()
+		return err
+	}
+	ack := make([]byte, 1)
+	if _, err := io.ReadFull(conn, ack); err != nil {
+		conn.Close()
+		return err
+	}
+	t.release(peer, conn)
+	if ack[0] != 1 {
+		return errors.New("peer rejected: " + peer)
+	}
+	return nil
+}
+
+func (t *netTransport) frame(messages ...Message) ([]byte, error) {
+	var body []byte
+	count := make([]byte, 4)
+	binary.BigEndian.PutUint32(count, uint32(len(messages)))
+	body = append(body, count...)
+
+	for _, message := range messages {
+		encoded, err := t.encoder.Encode(message)
+		if err != nil {
+			return nil, err
+		}
+		size := make([]byte, 4)
+		binary.BigEndian.PutUint32(size, uint32(len(encoded)))
+		body = append(body, size...)
+		body = append(body, encoded...)
+	}
+	return body, nil
 }
 
 func (t *netTransport) handle(conn net.Conn, onMessages func(messages ...Message) error, onSync func(since int64) []Message, onGossip func(theirSummary map[int]uint64) []Message) {
@@ -244,106 +338,15 @@ func (t *netTransport) handle(conn net.Conn, onMessages func(messages ...Message
 	}
 }
 
-func (t *netTransport) Recv(ctx context.Context, callback func(err error, messages ...Message)) {
-	for {
-		select {
-		case <-ctx.Done():
-			callback(ctx.Err())
-			return
-		case <-t.closed:
-			return
-		case messages := <-t.inbound:
-			callback(nil, messages...)
-		}
+func (t *netTransport) pool(peer string) chan net.Conn {
+	t.poolMu.Lock()
+	defer t.poolMu.Unlock()
+	p, ok := t.pools[peer]
+	if !ok {
+		p = make(chan net.Conn, maxConnsPerPeer)
+		t.pools[peer] = p
 	}
-}
-
-func (t *netTransport) Sync(ctx context.Context, peer string, since int64) ([]Message, error) {
-	conn, err := (&net.Dialer{Timeout: t.timeout}).DialContext(ctx, "tcp", peer)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(t.timeout))
-
-	req := make([]byte, 9)
-	req[0] = opPull
-	binary.BigEndian.PutUint64(req[1:], uint64(since))
-	if _, err := conn.Write(req); err != nil {
-		return nil, err
-	}
-	return t.readFrame(bufio.NewReader(conn))
-}
-
-func (t *netTransport) Gossip(ctx context.Context, peer string, summary map[int]uint64) ([]Message, error) {
-	conn, err := (&net.Dialer{Timeout: t.timeout}).DialContext(ctx, "tcp", peer)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(t.timeout))
-
-	header := make([]byte, 5)
-	header[0] = opGossip
-	binary.BigEndian.PutUint32(header[1:], uint32(len(summary)))
-	if _, err := conn.Write(header); err != nil {
-		return nil, err
-	}
-	buf := make([]byte, 0, 12*len(summary))
-	var pair [12]byte
-	for b, h := range summary {
-		binary.BigEndian.PutUint32(pair[0:4], uint32(b))
-		binary.BigEndian.PutUint64(pair[4:12], h)
-		buf = append(buf, pair[:]...)
-	}
-	if _, err := conn.Write(buf); err != nil {
-		return nil, err
-	}
-	return t.readFrame(bufio.NewReader(conn))
-}
-
-func (t *netTransport) Close() {
-	t.once.Do(func() {
-		close(t.closed)
-		t.mu.Lock()
-		if t.listener != nil {
-			t.listener.Close()
-		}
-		t.mu.Unlock()
-		t.poolMu.Lock()
-		for _, pool := range t.pools {
-			for {
-				select {
-				case conn := <-pool:
-					conn.Close()
-					continue
-				default:
-				}
-				break
-			}
-		}
-		t.pools = make(map[string]chan net.Conn)
-		t.poolMu.Unlock()
-	})
-}
-
-func (t *netTransport) frame(messages ...Message) ([]byte, error) {
-	var body []byte
-	count := make([]byte, 4)
-	binary.BigEndian.PutUint32(count, uint32(len(messages)))
-	body = append(body, count...)
-
-	for _, message := range messages {
-		encoded, err := t.encoder.Encode(message)
-		if err != nil {
-			return nil, err
-		}
-		size := make([]byte, 4)
-		binary.BigEndian.PutUint32(size, uint32(len(encoded)))
-		body = append(body, size...)
-		body = append(body, encoded...)
-	}
-	return body, nil
+	return p
 }
 
 func (t *netTransport) readFrame(r *bufio.Reader) ([]Message, error) {
@@ -379,12 +382,10 @@ func (t *netTransport) readFrame(r *bufio.Reader) ([]Message, error) {
 	return messages, nil
 }
 
-const (
-	opPush   byte = 0
-	opPull   byte = 1
-	opGossip byte = 2
-
-	maxConnsPerPeer = 16
-	maxFrameBytes   = 1 << 20
-	gossipChunk     = 4096
-)
+func (t *netTransport) release(peer string, conn net.Conn) {
+	select {
+	case t.pool(peer) <- conn:
+	default:
+		conn.Close()
+	}
+}

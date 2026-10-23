@@ -29,15 +29,6 @@ func NewGuardFrom(heads map[int64]int64) Guard {
 	return g
 }
 
-func (g *guard) head(key int64) *atomic.Int64 {
-	h, ok := g.heads[key]
-	if !ok {
-		h = &atomic.Int64{}
-		g.heads[key] = h
-	}
-	return h
-}
-
 func (g *guard) Admit(op Operation) bool {
 	return g.head(op.Key()).CompareAndSwap(op.Parent(), op.Version())
 }
@@ -56,4 +47,13 @@ func (g *guard) Snapshot() map[int64]int64 {
 		out[key] = h.Load()
 	}
 	return out
+}
+
+func (g *guard) head(key int64) *atomic.Int64 {
+	h, ok := g.heads[key]
+	if !ok {
+		h = &atomic.Int64{}
+		g.heads[key] = h
+	}
+	return h
 }

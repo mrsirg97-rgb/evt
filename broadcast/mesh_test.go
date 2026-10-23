@@ -57,18 +57,18 @@ func meshRoomOn(t *testing.T, clock func() MeshClock, count int, told func(i int
 			index := i
 			toldFn = func(act Act) { told(index, act) }
 		}
-		meshes[i] = NewMesh(int64(i)+100, MeshConfig{
-			Machine: "machine-" + string(rune('a'+i)),
-			Addr:    addrs[i],
-			Peers:   peersAddrs,
-			Clock:   clock(),
-			Timeout: time.Second,
-			Idle:    time.Second,
-			Window:  4,
-			Rounds:  3,
-			Voice:   30,
-			Told:    toldFn,
-		})
+		meshes[i] = NewMesh(int64(i)+100, NewMeshConfig(
+			"machine-"+string(rune('a'+i)),
+			addrs[i],
+			clock(),
+			WithPeers(peersAddrs...),
+			WithTimeout(time.Second),
+			WithIdle(time.Second),
+			WithWindow(4),
+			WithRounds(3),
+			WithVoice(30),
+			WithTold(toldFn),
+		))
 	}
 	return meshes
 }
@@ -118,8 +118,8 @@ func TestToldWaitsPastTheHorizon(t *testing.T) {
 	}
 	select {
 	case act := <-fired:
-		if act.Mint != claim.Mint {
-			t.Fatalf("the told carried mint %v, want %v", act.Mint, claim.Mint)
+		if act.Mint() != claim.Mint() {
+			t.Fatalf("the told carried mint %v, want %v", act.Mint(), claim.Mint())
 		}
 	case <-time.After(meshTestPatience):
 		t.Fatal("the member's told never fired past the horizon")
@@ -193,7 +193,7 @@ func TestALateJoinerConverges(t *testing.T) {
 	}
 	await(t, "a claim must cross both ways between the joiner and the mesh", func() bool {
 		a, b := meshes[0].Holders(7), meshes[2].Holders(8)
-		return len(a) == 1 && a[0].Mint == mine.Mint && len(b) == 1 && b[0].Mint == theirs.Mint
+		return len(a) == 1 && a[0].Mint() == mine.Mint() && len(b) == 1 && b[0].Mint() == theirs.Mint()
 	})
 }
 

@@ -38,6 +38,11 @@ type vdfClock struct {
 	proofs   map[uint64]*vdf.VDFProof
 }
 
+type vdfTick struct {
+	index  uint64
+	output *big.Int
+}
+
 func NewVDFClock(prime *big.Int, iterations int64, seed *big.Int, window int64, voice int) VDFClock {
 	return &vdfClock{
 		vdf:      vdf.NewVDF(prime, iterations),
@@ -50,92 +55,6 @@ func NewVDFClock(prime *big.Int, iterations int64, seed *big.Int, window int64, 
 }
 
 func (c *vdfClock) Step() uint64 { return c.index }
-
-func (c *vdfClock) Proof() *vdf.VDFProof { return c.proof }
-
-func (c *vdfClock) Output() *big.Int { return c.output }
-
-func (c *vdfClock) Verify(output, input *big.Int, proof *vdf.VDFProof) bool {
-	return c.vdf.VerifyVDF(output, input, proof)
-}
-
-func (c *vdfClock) Record(index uint64, output *big.Int, proof *vdf.VDFProof) bool {
-	if index == 0 || output == nil {
-		return false
-	}
-	if known, ok := c.frontier[index]; ok {
-		return known.Cmp(output) == 0
-	}
-	input, ok := c.frontier[index-1]
-	if !ok {
-		return false
-	}
-	if !c.Verify(output, input, proof) {
-		return false
-	}
-	c.keep(index, output, proof)
-	return true
-}
-
-func (c *vdfClock) Trust(index uint64, output *big.Int, proof *vdf.VDFProof) bool {
-	if index <= c.index || output == nil {
-		return false
-	}
-	if _, ok := c.frontier[index-1]; ok {
-		return false
-	}
-	c.keep(index, output, proof)
-	return true
-}
-
-func (c *vdfClock) keep(index uint64, output *big.Int, proof *vdf.VDFProof) {
-	c.frontier[index] = output
-	c.proofs[index] = proof
-	c.advance(index, output, proof)
-}
-
-func (c *vdfClock) advance(index uint64, output *big.Int, proof *vdf.VDFProof) {
-	if index <= c.index {
-		return
-	}
-	c.index, c.output, c.proof = index, output, proof
-	c.compact()
-}
-
-func (c *vdfClock) compact() {
-	floor := int64(c.index) - c.window - 2
-	if floor <= 0 {
-		return
-	}
-	for index := range c.frontier {
-		if int64(index) < floor {
-			delete(c.frontier, index)
-			delete(c.proofs, index)
-		}
-	}
-}
-
-func (c *vdfClock) Entries() []Tick {
-	indexes := make([]int, 0, len(c.frontier))
-	for index := range c.frontier {
-		indexes = append(indexes, int(index))
-	}
-	sort.Ints(indexes)
-	out := []Tick{}
-	for _, index := range indexes {
-		proof := c.proofs[uint64(index)]
-		if proof == nil {
-			proof = &vdf.VDFProof{}
-		}
-		out = append(out, Tick{Index: uint64(index), Output: c.frontier[uint64(index)], Proof: proof})
-	}
-	return out
-}
-
-type vdfTick struct {
-	index  uint64
-	output *big.Int
-}
 
 func (c *vdfClock) Start(ctx context.Context, engine evt.Engine, onTick func(index uint64)) {
 	go func() {
@@ -169,6 +88,86 @@ func (c *vdfClock) Start(ctx context.Context, engine evt.Engine, onTick func(ind
 			}
 		}
 	}()
+}
+
+func (c *vdfClock) Proof() *vdf.VDFProof { return c.proof }
+func (c *vdfClock) Output() *big.Int     { return c.output }
+
+func (c *vdfClock) Entries() []Tick {
+	indexes := make([]int, 0, len(c.frontier))
+	for index := range c.frontier {
+		indexes = append(indexes, int(index))
+	}
+	sort.Ints(indexes)
+	out := []Tick{}
+	for _, index := range indexes {
+		proof := c.proofs[uint64(index)]
+		if proof == nil {
+			proof = &vdf.VDFProof{}
+		}
+		out = append(out, Tick{Index: uint64(index), Output: c.frontier[uint64(index)], Proof: proof})
+	}
+	return out
+}
+
+func (c *vdfClock) Record(index uint64, output *big.Int, proof *vdf.VDFProof) bool {
+	if index == 0 || output == nil {
+		return false
+	}
+	if known, ok := c.frontier[index]; ok {
+		return known.Cmp(output) == 0
+	}
+	input, ok := c.frontier[index-1]
+	if !ok {
+		return false
+	}
+	if !c.Verify(output, input, proof) {
+		return false
+	}
+	c.keep(index, output, proof)
+	return true
+}
+
+func (c *vdfClock) Trust(index uint64, output *big.Int, proof *vdf.VDFProof) bool {
+	if index <= c.index || output == nil {
+		return false
+	}
+	if _, ok := c.frontier[index-1]; ok {
+		return false
+	}
+	c.keep(index, output, proof)
+	return true
+}
+
+func (c *vdfClock) Verify(output, input *big.Int, proof *vdf.VDFProof) bool {
+	return c.vdf.VerifyVDF(output, input, proof)
+}
+
+func (c *vdfClock) advance(index uint64, output *big.Int, proof *vdf.VDFProof) {
+	if index <= c.index {
+		return
+	}
+	c.index, c.output, c.proof = index, output, proof
+	c.compact()
+}
+
+func (c *vdfClock) compact() {
+	floor := int64(c.index) - c.window - 2
+	if floor <= 0 {
+		return
+	}
+	for index := range c.frontier {
+		if int64(index) < floor {
+			delete(c.frontier, index)
+			delete(c.proofs, index)
+		}
+	}
+}
+
+func (c *vdfClock) keep(index uint64, output *big.Int, proof *vdf.VDFProof) {
+	c.frontier[index] = output
+	c.proofs[index] = proof
+	c.advance(index, output, proof)
 }
 
 func GenesisSeed(roomId string) *big.Int {

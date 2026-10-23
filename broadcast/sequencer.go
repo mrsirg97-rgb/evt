@@ -35,7 +35,7 @@ func NewSequencer(window int64) Sequencer {
 }
 
 func (s *sequencer) Apply(state State, act Act) error {
-	if s.seen[act.Mint] {
+	if s.seen[act.Mint()] {
 		return nil
 	}
 	tick := int64(act.Tick())
@@ -46,7 +46,7 @@ func (s *sequencer) Apply(state State, act Act) error {
 	if tick > s.highest {
 		s.highest = tick
 	}
-	s.seen[act.Mint] = true
+	s.seen[act.Mint()] = true
 	s.prune()
 	position := s.position(act)
 	if position == len(s.applied) {
@@ -73,6 +73,28 @@ func (s *sequencer) Apply(state State, act Act) error {
 	return nil
 }
 
+func (s *sequencer) Observe(tick int64) {
+	if tick > s.highest {
+		s.highest = tick
+		s.prune()
+	}
+}
+
+func (s *sequencer) Order() []Act {
+	return append([]Act{}, s.applied...)
+}
+
+func (s *sequencer) Horizon() int64 {
+	return s.highest
+}
+
+func (s *sequencer) Reorgs() int  { return s.reorgs }
+func (s *sequencer) Refused() int { return s.refused }
+
+func (s *sequencer) position(act Act) int {
+	return sort.Search(len(s.applied), func(i int) bool { return actLess(act, s.applied[i]) })
+}
+
 func (s *sequencer) prune() {
 	floor := s.highest - s.window
 	for mint := range s.seen {
@@ -89,25 +111,3 @@ func (s *sequencer) prune() {
 	clear(s.applied[len(kept):])
 	s.applied = kept
 }
-
-func (s *sequencer) position(act Act) int {
-	return sort.Search(len(s.applied), func(i int) bool { return actLess(act, s.applied[i]) })
-}
-
-func (s *sequencer) Order() []Act {
-	return append([]Act{}, s.applied...)
-}
-
-func (s *sequencer) Horizon() int64 {
-	return s.highest
-}
-
-func (s *sequencer) Observe(tick int64) {
-	if tick > s.highest {
-		s.highest = tick
-		s.prune()
-	}
-}
-
-func (s *sequencer) Reorgs() int  { return s.reorgs }
-func (s *sequencer) Refused() int { return s.refused }

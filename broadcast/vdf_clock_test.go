@@ -75,25 +75,8 @@ func TestGenesisSeedBindsTheChain(t *testing.T) {
 
 func TestMeshWireRoundTrips(t *testing.T) {
 	encoder := MeshCodec()
-	claim := Act{
-		Mint:     Mint{Step: 9, Member: 42, Nonce: 7},
-		Key:      5,
-		Priority: 20,
-		Machine:  "battlestation",
-		Kind:     ActClaim,
-		Output:   big.NewInt(970971),
-		Proof:    &vdf.VDFProof{Y: big.NewInt(11), L: big.NewInt(13)},
-	}
-	act := Act{
-		Mint:     Mint{Step: 10, Member: 42, Nonce: 8},
-		Key:      5,
-		Priority: 20,
-		Machine:  "battlestation",
-		Kind:     ActRelease,
-		Claim:    &claim,
-		Output:   big.NewInt(970972),
-		Proof:    &vdf.VDFProof{Y: big.NewInt(11), L: big.NewInt(13)},
-	}
+	claim := NewAct(Mint{Step: 9, Member: 42, Nonce: 7}, 5, 20, "battlestation", ActClaim, nil, big.NewInt(970971), &vdf.VDFProof{Y: big.NewInt(11), L: big.NewInt(13)})
+	act := NewAct(Mint{Step: 10, Member: 42, Nonce: 8}, 5, 20, "battlestation", ActRelease, claim, big.NewInt(970972), &vdf.VDFProof{Y: big.NewInt(11), L: big.NewInt(13)})
 	frame, err := encoder.Encode(NewMessage(42, true, act))
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -106,16 +89,16 @@ func TestMeshWireRoundTrips(t *testing.T) {
 	if !ok {
 		t.Fatalf("the decoded frame must carry an act, got %T", decoded.Signal())
 	}
-	if got.Mint != act.Mint || got.Key != act.Key || got.Machine != act.Machine || got.Kind != act.Kind {
+	if got.Mint() != act.Mint() || got.Key() != act.Key() || got.Machine() != act.Machine() || got.Kind() != act.Kind() {
 		t.Fatalf("the act's fields must survive the wire: %+v", got)
 	}
-	if got.Claim == nil || got.Claim.Mint != claim.Mint {
+	if got.Claim() == nil || got.Claim().Mint() != claim.Mint() {
 		t.Fatal("a release must carry its claim through the wire")
 	}
-	if got.Output.Cmp(act.Output) != 0 {
+	if got.Output().Cmp(act.Output()) != 0 {
 		t.Fatal("the tick's output must survive the wire")
 	}
-	if got.Proof.L.Cmp(act.Proof.L) != 0 || got.Proof.Y.Cmp(act.Proof.Y) != 0 {
+	if got.Proof().L.Cmp(act.Proof().L) != 0 || got.Proof().Y.Cmp(act.Proof().Y) != 0 {
 		t.Fatal("the proof must survive the wire")
 	}
 
@@ -134,6 +117,38 @@ func TestMeshWireRoundTrips(t *testing.T) {
 	}
 	if gotTick.Index != tick.Index || gotTick.Output.Cmp(tick.Output) != 0 {
 		t.Fatalf("the tick must survive the wire: %+v", gotTick)
+	}
+}
+
+func TestTheActWireIsTheStructWire(t *testing.T) {
+	encoder := MeshCodec()
+	proof := &vdf.VDFProof{Y: big.NewInt(11), L: big.NewInt(13)}
+	claim := NewAct(Mint{Step: 9, Member: 42, Nonce: 7}, 5, 20, "m", ActClaim, nil, big.NewInt(1), proof)
+	cases := []struct {
+		origin int64
+		act    Act
+		want   string
+	}{
+		{42, NewAct(Mint{Step: 10, Member: 42, Nonce: 8}, 5, 20, "m", ActRelease, claim, big.NewInt(2), proof),
+			`{"origin":42,"ok":true,"kind":"mesh/act","payload":{"Mint":{"Step":10,"Member":42,"Nonce":8},"Key":5,"Priority":20,"Machine":"m","Kind":"release","Claim":{"Mint":{"Step":9,"Member":42,"Nonce":7},"Key":5,"Priority":20,"Machine":"m","Kind":"claim","Claim":null,"Output":1,"Proof":{"Y":11,"L":13}},"Output":2,"Proof":{"Y":11,"L":13}}}`},
+		{1, NewAct(Mint{Step: 1}, 7, 0, "", "", nil, nil, nil),
+			`{"origin":1,"ok":true,"kind":"mesh/act","payload":{"Mint":{"Step":1,"Member":0,"Nonce":0},"Key":7,"Priority":0,"Machine":"","Kind":"","Claim":null,"Output":null,"Proof":null}}`},
+	}
+	for _, c := range cases {
+		frame, err := encoder.Encode(NewMessage(c.origin, true, c.act))
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		if string(frame) != c.want {
+			t.Fatalf("the act's wire changed:\n got  %s\n want %s", frame, c.want)
+		}
+		decoded, err := encoder.Decode([]byte(c.want))
+		if err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if got := decoded.Signal().(Act); (got.Claim() == nil) != (c.act.Claim() == nil) {
+			t.Fatalf("a null claim decodes to no claim, a claim to a claim: got %v", got.Claim())
+		}
 	}
 }
 

@@ -67,18 +67,6 @@ type Seated struct {
 	Live []int64
 }
 
-func jsonCodec[T evt.Signal](r Registry, kind string) (Registry, error) {
-	return Declare[T](r, kind,
-		func(v T) ([]byte, error) { return json.Marshal(v) },
-		func(raw []byte) (T, error) {
-			var v T
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return v, err
-			}
-			return v, nil
-		})
-}
-
 func Protocol() (Registry, error) {
 	reg, err := jsonCodec[Claim](NewRegistry(), "claim")
 	if err != nil {
@@ -117,4 +105,16 @@ func Protocol() (Registry, error) {
 		return nil, err
 	}
 	return jsonCodec[Seated](reg, "seated")
+}
+
+func jsonCodec[T evt.Signal](r Registry, kind string) (Registry, error) {
+	return Declare[T](r, kind,
+		func(v T) ([]byte, error) { return json.Marshal(v) },
+		func(raw []byte) (T, error) {
+			var v T
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return v, err
+			}
+			return v, nil
+		})
 }
